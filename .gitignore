@@ -1,0 +1,5 @@
+/.gems/
+/.bundle/
+/coverage/
+/pkg/
+*.gem
