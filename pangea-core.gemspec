@@ -9,7 +9,7 @@ Gem::Specification.new do |spec|
   spec.version               = PangeaCore::VERSION
   spec.authors               = [%(Luis Zayas)]
   spec.email                 = [%(drzthslnt@gmail.com)]
-  spec.description           = %(Core types and utilities for Pangea infrastructure DSL. Provides ResourceReference, ResourceRegistry, Base, Types, and Helpers shared across all provider gems.)
+  spec.description           = %(Core types, entities, validation, logging, and utilities for Pangea infrastructure DSL. Provides ResourceReference, ResourceRegistry, Base, Types, Helpers, Entities, Errors, and Validators shared across all provider gems.)
   spec.summary               = %(Core types for Pangea infrastructure DSL)
   spec.homepage              = %(https://github.com/pleme-io/pangea-core)
   spec.license               = %(Apache-2.0)

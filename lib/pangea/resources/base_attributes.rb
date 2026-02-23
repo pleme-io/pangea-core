@@ -40,6 +40,17 @@ module Pangea
         self.class.terraform_reference?(value)
       end
 
+      # Yields the attribute value if it's NOT a terraform reference,
+      # otherwise returns the raw reference string. Useful when a resource
+      # needs to compute/transform a value but must pass through ${...} refs.
+      #
+      #   terraform_ref_or(:cidr_block) { |v| calculate_something(v) }
+      #
+      def terraform_ref_or(attr_name)
+        val = public_send(attr_name)
+        terraform_reference?(val) ? val : yield(val)
+      end
+
       # Create a copy with merged attributes.
       # Uses Dry::Struct's load method to bypass custom self.new overrides,
       # preventing infinite recursion when copy_with is called inside validators.

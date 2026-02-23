@@ -49,11 +49,36 @@ unless Object.method_defined?(:present?)
   end
 end
 
-# Core types
+# Domain types
+require_relative 'pangea/types/registry'
+require_relative 'pangea/types/base_types'
+require_relative 'pangea/types/domain_types'
+
+# Errors and validation
+require_relative 'pangea/errors'
+require_relative 'pangea/validation'
+require_relative 'pangea/resources/validators/network_validators'
+require_relative 'pangea/resources/validators/format_validators'
+
+# Entities
+require_relative 'pangea/entities'
+
+# Logging
+require_relative 'pangea/logging'
+
+# Component infrastructure
+require_relative 'pangea/components/base'
+require_relative 'pangea/component_registry'
+
+# Resource builders
+require_relative 'pangea/resources/builders/output_builder'
+
+# Core resource types
 require_relative 'pangea/resources/types'
 require_relative 'pangea/resource_registry'
 require_relative 'pangea/resources/helpers'
 require_relative 'pangea/resources/base'
 require_relative 'pangea/resources/base_attributes'
 require_relative 'pangea/resources/reference'
+require_relative 'pangea/resources/resource_builder'
 require_relative 'pangea/resources/network_helpers'
