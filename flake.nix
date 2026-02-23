@@ -16,45 +16,11 @@
     };
   };
 
-  outputs = {
-    self,
-    nixpkgs,
-    ruby-nix,
-    flake-utils,
-    substrate,
-    forge,
-    ...
-  }:
-    flake-utils.lib.eachSystem ["x86_64-linux" "aarch64-linux" "aarch64-darwin"] (system: let
-      pkgs = import nixpkgs {
-        inherit system;
-        overlays = [ruby-nix.overlays.ruby];
-      };
-      rnix = ruby-nix.lib pkgs;
-      rnix-env = rnix {
-        name = "pangea-core";
-        gemset = ./gemset.nix;
-      };
-      env = rnix-env.env;
-      ruby = rnix-env.ruby;
-
-      rubyBuild = import "${substrate}/lib/ruby-build.nix" {
-        inherit pkgs;
-        forgeCmd = "${forge.packages.${system}.default}/bin/forge";
-        defaultGhcrToken = "";
-      };
-    in {
-      devShells.default = pkgs.mkShell {
-        buildInputs = [env ruby];
-        shellHook = ''
-          export RUBYLIB=$PWD/lib:$RUBYLIB
-          export DRY_TYPES_WARNINGS=false
-        '';
-      };
-
-      apps = rubyBuild.mkRubyGemApps {
-        srcDir = self;
-        name = "pangea-core";
-      };
-    });
+  outputs = { self, nixpkgs, ruby-nix, flake-utils, substrate, forge, ... }:
+    (import "${substrate}/lib/ruby-gem-flake.nix" {
+      inherit nixpkgs ruby-nix flake-utils substrate forge;
+    }) {
+      inherit self;
+      name = "pangea-core";
+    };
 }
