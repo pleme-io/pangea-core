@@ -40,10 +40,12 @@ module Pangea
         self.class.terraform_reference?(value)
       end
 
-      # Dry::Struct uses `new` to create copies with merged attributes.
-      # Alias `copy_with` for backward compatibility with existing code.
+      # Create a copy with merged attributes.
+      # Uses Dry::Struct's load method to bypass custom self.new overrides,
+      # preventing infinite recursion when copy_with is called inside validators.
       def copy_with(changes = {})
-        self.class.new(to_h.merge(changes))
+        merged = to_h.merge(changes.transform_keys(&:to_sym))
+        self.class.load(merged)
       end
     end
   end
