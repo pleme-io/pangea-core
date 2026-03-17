@@ -99,9 +99,88 @@ module Pangea
           end
         end
 
+        # Define a terraform data source method on this module.
+        #
+        # Data sources are read-only lookups. The generated method calls `data()`
+        # instead of `resource()` and output references use the `data.` prefix:
+        #   ${data.akeyless_secret.my_secret.value}
+        #
+        # @param tf_type [Symbol]         Terraform data source type (e.g. :akeyless_secret)
+        # @param attributes_class [Class]  Dry::Struct class for attribute validation
+        # @param outputs [Hash]            { friendly_name => terraform_attribute } — defaults to { id: :id }
+        # @param map [Array<Symbol>]       Attributes always set on the data block
+        # @param map_present [Array<Symbol>] Attributes set only when non-nil
+        # @param map_bool [Array<Symbol>]  Boolean attributes set only when non-nil (uses !val.nil?)
+        # @param labels [Symbol, nil]      Attribute name for labels hash (set when .any?)
+        # @param tags [Symbol, nil]        Attribute name for tags hash (set when .any?)
+        # @param custom_block [Proc]       Optional block receiving (data_dsl, attrs) for complex data sources
+        #
+        def define_data(tf_type, attributes_class:, outputs: { id: :id },
+                        map: [], map_present: [], map_bool: [],
+                        tags: nil, labels: nil, &custom_block)
+          method_name = :"data_#{tf_type}"
+
+          @_data_definitions ||= {}
+          @_data_definitions[tf_type] = {
+            attributes_class: attributes_class,
+            outputs: outputs,
+            map: map,
+            map_present: map_present,
+            map_bool: map_bool,
+            tags: tags,
+            labels: labels
+          }
+
+          define_method(method_name) do |name, attributes = {}|
+            attrs = attributes_class.new(attributes)
+
+            data(tf_type, name) do
+              map.each { |attr| __send__(attr, attrs.public_send(attr)) }
+
+              map_present.each do |attr|
+                val = attrs.public_send(attr)
+                __send__(attr, val) if val
+              end
+
+              map_bool.each do |attr|
+                val = attrs.public_send(attr)
+                __send__(attr, val) unless val.nil?
+              end
+
+              if tags
+                tag_val = attrs.public_send(tags)
+                __send__(tags, tag_val) if tag_val&.any?
+              end
+
+              if labels
+                label_val = attrs.public_send(labels)
+                __send__(labels, label_val) if label_val&.any?
+              end
+
+              instance_exec(self, attrs, &custom_block) if custom_block
+            end
+
+            output_hash = outputs.each_with_object({}) do |(friendly, tf_attr), h|
+              h[friendly] = "${data.#{tf_type}.#{name}.#{tf_attr}}"
+            end
+
+            ResourceReference.new(
+              type: "data.#{tf_type}",
+              name: name,
+              resource_attributes: attrs.to_h,
+              outputs: output_hash
+            )
+          end
+        end
+
         # Introspect registered resource definitions.
         def resource_definitions
           @_resource_definitions || {}
+        end
+
+        # Introspect registered data source definitions.
+        def data_definitions
+          @_data_definitions || {}
         end
       end
     end
