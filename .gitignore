@@ -4,3 +4,4 @@
 /pkg/
 *.gem
 .rspec_status
+openapitools.json
