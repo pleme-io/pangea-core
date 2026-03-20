@@ -19,9 +19,16 @@ require_relative 'mock_resource_reference'
 module Pangea
   module Testing
     # Mock synthesizer for testing when TerraformSynthesizer is not available.
-    # Accepts ANY resource method call (aws_, google_, azurerm_, hcloud_, cloudflare_, etc.)
-    # and records the resource in the synthesis output.
+    # Accepts resource method calls matching known provider prefixes (aws_, google_,
+    # azurerm_, hcloud_, cloudflare_, etc.) and records the resource in the synthesis output.
     class MockTerraformSynthesizer
+      # Known Terraform provider resource prefixes
+      VALID_RESOURCE_PREFIXES = %w[
+        aws_ google_ azurerm_ hcloud_ cloudflare_ kubernetes_ helm_
+        null_ random_ local_ tls_ time_ archive_ external_ template_
+        akeyless_ datadog_ splunk_ vault_ consul_ nomad_ digitalocean_
+      ].freeze
+
       attr_reader :resources, :data_sources, :outputs
 
       def initialize
@@ -40,6 +47,11 @@ module Pangea
 
       def method_missing(method_name, *args, &block)
         resource_type = method_name.to_s
+
+        unless valid_resource_type?(resource_type)
+          super
+        end
+
         resource_name = args[0].to_s
         resource_config = args[1] || {}
 
@@ -49,8 +61,14 @@ module Pangea
         MockResourceReference.new(resource_type, resource_name, resource_config)
       end
 
-      def respond_to_missing?(_method_name, _include_private = false)
-        true
+      def respond_to_missing?(method_name, _include_private = false)
+        valid_resource_type?(method_name.to_s) || super
+      end
+
+      private
+
+      def valid_resource_type?(name)
+        VALID_RESOURCE_PREFIXES.any? { |prefix| name.start_with?(prefix) }
       end
     end
   end

@@ -18,8 +18,14 @@ module Pangea
   module Resources
     module Validators
       module NetworkValidators
+        # Pre-compiled regex constants — compiled once, reused on every call.
+        CIDR_PATTERN = %r{\A\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/\d{1,2}\z}.freeze
+        DOMAIN_PATTERN = /\A(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\z/i.freeze
+        WILDCARD_DOMAIN_PATTERN = /\A(\*\.)?(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\z/i.freeze
+        EMAIL_PATTERN = /\A[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\z/.freeze
+
         def valid_cidr!(value)
-          unless value.match?(%r{\A\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/\d{1,2}\z})
+          unless value.match?(CIDR_PATTERN)
             raise ValidationError, "Invalid CIDR format: #{value}"
           end
 
@@ -55,11 +61,7 @@ module Pangea
         end
 
         def valid_domain!(value, allow_wildcard: false)
-          pattern = if allow_wildcard
-                      /\A(\*\.)?(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\z/i
-                    else
-                      /\A(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\z/i
-                    end
+          pattern = allow_wildcard ? WILDCARD_DOMAIN_PATTERN : DOMAIN_PATTERN
 
           unless value.match?(pattern)
             raise ValidationError, "Invalid domain name: #{value}"
@@ -68,7 +70,7 @@ module Pangea
         end
 
         def valid_email!(value)
-          unless value.match?(/\A[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\z/)
+          unless value.match?(EMAIL_PATTERN)
             raise ValidationError, "Invalid email format: #{value}"
           end
           value

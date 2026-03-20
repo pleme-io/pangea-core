@@ -17,51 +17,60 @@
 require 'set'
 
 module Pangea
-  # Global registry for resource modules that auto-register when loaded
+  # Global registry for resource modules that auto-register when loaded.
+  # Thread-safe: all mutation and read paths are guarded by a Mutex.
   module ResourceRegistry
     @registered_modules = Set.new
     @provider_modules = Hash.new { |h, k| h[k] = Set.new }
+    @mutex = Mutex.new
 
     class << self
       # Register a module to be available in template contexts
       def register_module(mod)
-        @registered_modules.add(mod)
+        @mutex.synchronize { @registered_modules.add(mod) }
       end
 
       # Get all registered modules
       def registered_modules
-        @registered_modules.to_a
+        @mutex.synchronize { @registered_modules.to_a }
       end
 
       # Clear registry (useful for testing)
       def clear!
-        @registered_modules.clear
+        @mutex.synchronize do
+          @registered_modules.clear
+          @provider_modules.clear
+        end
       end
 
       # Check if a module is registered
       def registered?(mod)
-        @registered_modules.include?(mod)
+        @mutex.synchronize { @registered_modules.include?(mod) }
       end
 
       # Support provider-based registration used by individual resources
       def register(provider, mod)
-        @provider_modules[provider].add(mod)
-        # Also add to global registry for backward compatibility
-        @registered_modules.add(mod)
+        @mutex.synchronize do
+          @provider_modules[provider].add(mod)
+          # Also add to global registry for backward compatibility
+          @registered_modules.add(mod)
+        end
       end
-      
+
       # Get modules for a specific provider
       def modules_for(provider)
-        @provider_modules[provider].to_a
+        @mutex.synchronize { @provider_modules[provider].to_a }
       end
 
       # Get registry statistics
       def stats
-        {
-          total_modules: @registered_modules.size,
-          modules: @registered_modules.map(&:name),
-          by_provider: @provider_modules.transform_values(&:size)
-        }
+        @mutex.synchronize do
+          {
+            total_modules: @registered_modules.size,
+            modules: @registered_modules.map(&:name),
+            by_provider: @provider_modules.transform_values(&:size)
+          }
+        end
       end
     end
   end

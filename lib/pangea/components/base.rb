@@ -14,6 +14,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+require 'ipaddr'
+
 module Pangea
   module Components
     module Base
@@ -29,8 +31,6 @@ module Pangea
       end
 
       def calculate_subnet_cidr(vpc_cidr, index, new_bits = 8)
-        require 'ipaddr'
-
         vpc_network = IPAddr.new(vpc_cidr)
         vpc_prefix = vpc_cidr.split('/').last.to_i
         subnet_prefix = vpc_prefix + new_bits
