@@ -28,12 +28,19 @@ module Pangea
       # terraform references (they will be resolved at plan/apply time).
       TERRAFORM_REF_PATTERN = /\$\{.*\}/.freeze
 
+      # Override in subclasses to use a different reference pattern
+      # (e.g., Pulumi uses different interpolation syntax).
+      def self.reference_pattern
+        TERRAFORM_REF_PATTERN
+      end
+
       # Returns true if the value contains a terraform/HCL interpolation reference.
       # Works for both class-level (self.terraform_reference?) and instance-level usage.
+      # Uses the overridable reference_pattern so providers can customize detection.
       def self.terraform_reference?(value)
         return false unless value.is_a?(String)
 
-        value.match?(TERRAFORM_REF_PATTERN)
+        value.match?(reference_pattern)
       end
 
       def terraform_reference?(value)

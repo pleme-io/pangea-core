@@ -84,3 +84,6 @@ require_relative 'pangea/resources/reference'
 require_relative 'pangea/resources/reference_generator'
 require_relative 'pangea/resources/resource_builder'
 require_relative 'pangea/resources/network_helpers'
+
+# Provider contract
+require_relative 'pangea/provider_contract'

@@ -1,0 +1,17 @@
+# nix build
+result
+
+# bundle --path vendor/bundle
+vendor
+
+# ignore bundle cache
+.bundle
+
+# ignore built gems
+pkg
+
+# remove .envrc
+.envrc
+
+# use flake direnv cache
+.direnv

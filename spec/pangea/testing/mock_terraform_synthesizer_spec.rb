@@ -66,8 +66,18 @@ RSpec.describe Pangea::Testing::MockTerraformSynthesizer do
   end
 
   describe '#respond_to_missing?' do
-    it 'returns true for all methods' do
-      expect(synthesizer.respond_to?(:any_method)).to be true
+    it 'returns true for valid resource prefixes' do
+      expect(synthesizer.respond_to?(:aws_vpc)).to be true
+      expect(synthesizer.respond_to?(:google_compute_instance)).to be true
+      expect(synthesizer.respond_to?(:azurerm_virtual_network)).to be true
+      expect(synthesizer.respond_to?(:hcloud_server)).to be true
+      expect(synthesizer.respond_to?(:cloudflare_record)).to be true
+      expect(synthesizer.respond_to?(:akeyless_auth_method)).to be true
+    end
+
+    it 'returns false for unknown prefixes' do
+      expect(synthesizer.respond_to?(:any_method)).to be false
+      expect(synthesizer.respond_to?(:unknown_resource)).to be false
     end
   end
 end

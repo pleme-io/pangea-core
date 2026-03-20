@@ -47,55 +47,12 @@ module Pangea
                             map: [], map_present: [], map_bool: [],
                             tags: nil, labels: nil, &custom_block)
           @_resource_definitions ||= {}
-          @_resource_definitions[tf_type] = {
-            attributes_class: attributes_class,
-            outputs: outputs,
-            map: map,
-            map_present: map_present,
-            map_bool: map_bool,
-            tags: tags,
-            labels: labels
-          }
+          @_resource_definitions[tf_type] = _store_definition(attributes_class, outputs, map, map_present, map_bool, tags, labels)
 
           define_method(tf_type) do |name, attributes = {}|
             attrs = attributes_class.new(attributes)
-
-            resource(tf_type, name) do
-              map.each { |attr| __send__(attr, attrs.public_send(attr)) }
-
-              map_present.each do |attr|
-                val = attrs.public_send(attr)
-                __send__(attr, val) if val
-              end
-
-              map_bool.each do |attr|
-                val = attrs.public_send(attr)
-                __send__(attr, val) unless val.nil?
-              end
-
-              if tags
-                tag_val = attrs.public_send(tags)
-                __send__(tags, tag_val) if tag_val&.any?
-              end
-
-              if labels
-                label_val = attrs.public_send(labels)
-                __send__(labels, label_val) if label_val&.any?
-              end
-
-              instance_exec(self, attrs, &custom_block) if custom_block
-            end
-
-            output_hash = outputs.each_with_object({}) do |(friendly, tf_attr), h|
-              h[friendly] = "${#{tf_type}.#{name}.#{tf_attr}}"
-            end
-
-            ResourceReference.new(
-              type: tf_type.to_s,
-              name: name,
-              resource_attributes: attrs.to_h,
-              outputs: output_hash
-            )
+            _synthesize_block(:resource, tf_type, name, attrs, map, map_present, map_bool, tags, labels, custom_block)
+            _build_reference(tf_type.to_s, name, attrs, outputs)
           end
         end
 
@@ -119,57 +76,13 @@ module Pangea
                         map: [], map_present: [], map_bool: [],
                         tags: nil, labels: nil, &custom_block)
           method_name = :"data_#{tf_type}"
-
           @_data_definitions ||= {}
-          @_data_definitions[tf_type] = {
-            attributes_class: attributes_class,
-            outputs: outputs,
-            map: map,
-            map_present: map_present,
-            map_bool: map_bool,
-            tags: tags,
-            labels: labels
-          }
+          @_data_definitions[tf_type] = _store_definition(attributes_class, outputs, map, map_present, map_bool, tags, labels)
 
           define_method(method_name) do |name, attributes = {}|
             attrs = attributes_class.new(attributes)
-
-            data(tf_type, name) do
-              map.each { |attr| __send__(attr, attrs.public_send(attr)) }
-
-              map_present.each do |attr|
-                val = attrs.public_send(attr)
-                __send__(attr, val) if val
-              end
-
-              map_bool.each do |attr|
-                val = attrs.public_send(attr)
-                __send__(attr, val) unless val.nil?
-              end
-
-              if tags
-                tag_val = attrs.public_send(tags)
-                __send__(tags, tag_val) if tag_val&.any?
-              end
-
-              if labels
-                label_val = attrs.public_send(labels)
-                __send__(labels, label_val) if label_val&.any?
-              end
-
-              instance_exec(self, attrs, &custom_block) if custom_block
-            end
-
-            output_hash = outputs.each_with_object({}) do |(friendly, tf_attr), h|
-              h[friendly] = "${data.#{tf_type}.#{name}.#{tf_attr}}"
-            end
-
-            ResourceReference.new(
-              type: "data.#{tf_type}",
-              name: name,
-              resource_attributes: attrs.to_h,
-              outputs: output_hash
-            )
+            _synthesize_block(:data, tf_type, name, attrs, map, map_present, map_bool, tags, labels, custom_block)
+            _build_reference("data.#{tf_type}", name, attrs, outputs)
           end
         end
 
@@ -182,6 +95,44 @@ module Pangea
         def data_definitions
           @_data_definitions || {}
         end
+
+        private
+
+        def _store_definition(attributes_class, outputs, map, map_present, map_bool, tags, labels)
+          { attributes_class: attributes_class, outputs: outputs, map: map,
+            map_present: map_present, map_bool: map_bool, tags: tags, labels: labels }.freeze
+        end
+      end
+
+      private
+
+      def _synthesize_block(block_type, tf_type, name, attrs, map, map_present, map_bool, tags, labels, custom_block)
+        send(block_type, tf_type, name) do
+          map.each { |attr| __send__(attr, attrs.public_send(attr)) }
+          map_present.each { |attr| val = attrs.public_send(attr); __send__(attr, val) if val }
+          map_bool.each { |attr| val = attrs.public_send(attr); __send__(attr, val) unless val.nil? }
+          if tags
+            tag_val = attrs.public_send(tags)
+            __send__(tags, tag_val) if tag_val&.any?
+          end
+          if labels
+            label_val = attrs.public_send(labels)
+            __send__(labels, label_val) if label_val&.any?
+          end
+          instance_exec(self, attrs, &custom_block) if custom_block
+        end
+      end
+
+      def _build_reference(type_str, name, attrs, outputs)
+        output_hash = outputs.each_with_object({}) do |(friendly, tf_attr), h|
+          h[friendly] = "${#{type_str}.#{name}.#{tf_attr}}"
+        end
+        ResourceReference.new(
+          type: type_str,
+          name: name,
+          resource_attributes: attrs.to_h,
+          outputs: output_hash
+        )
       end
     end
   end

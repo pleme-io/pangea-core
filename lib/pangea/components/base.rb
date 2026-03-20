@@ -18,18 +18,11 @@ require 'ipaddr'
 
 module Pangea
   module Components
-    module Base
-      class ComponentError < StandardError; end
-      class ValidationError < ComponentError; end
-      class CompositionError < ComponentError; end
+    class ComponentError < StandardError; end
+    class ValidationError < ComponentError; end
+    class CompositionError < ComponentError; end
 
-      def validate_required_attributes(attributes, required)
-        missing = required - attributes.keys
-        unless missing.empty?
-          raise ValidationError, "Missing required attributes: #{missing.join(', ')}"
-        end
-      end
-
+    module Networking
       def calculate_subnet_cidr(vpc_cidr, index, new_bits = 8)
         vpc_network = IPAddr.new(vpc_cidr)
         vpc_prefix = vpc_cidr.split('/').last.to_i
@@ -40,15 +33,32 @@ module Pangea
 
         "#{IPAddr.new(subnet_network, Socket::AF_INET)}/#{subnet_prefix}"
       end
+    end
 
+    module Naming
       def component_resource_name(component_name, resource_type, suffix = nil)
         parts = [component_name, resource_type]
         parts << suffix if suffix
         parts.join('_').to_sym
       end
+    end
 
+    module Tagging
       def merge_tags(default_tags, user_tags = {})
         default_tags.merge(user_tags)
+      end
+    end
+
+    module Base
+      include Networking
+      include Naming
+      include Tagging
+
+      def validate_required_attributes(attributes, required)
+        missing = required - attributes.keys
+        unless missing.empty?
+          raise ValidationError, "Missing required attributes: #{missing.join(', ')}"
+        end
       end
 
       def component_outputs(resources, computed = {})

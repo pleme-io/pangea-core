@@ -16,6 +16,7 @@
 
 require 'dry-struct'
 require 'pangea/resources/types'
+require 'pangea/resources/reference_generator'
 
 module Pangea
   module Resources
@@ -76,7 +77,7 @@ module Pangea
 
       # Generate terraform reference for any attribute
       def ref(attribute_name)
-        "${#{type}.#{name}.#{attribute_name}}"
+        ReferenceGenerator::RESOURCE_REF.call(type, name, attribute_name)
       end
 
       # Alias for ref - more natural syntax
@@ -126,12 +127,12 @@ module Pangea
 
       # Convert to hash for terraform-synthesizer integration
       def to_h
-        {
+        @_to_h ||= {
           type: type,
           name: name,
           attributes: resource_attributes,  # Use 'attributes' as key for compatibility
           outputs: outputs
-        }
+        }.freeze
       end
     end
   end
