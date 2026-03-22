@@ -61,7 +61,7 @@ module Pangea
 
       def output
         Dir.chdir(config.workspace_dir) do
-          exec(TOFU, 'output', '-json')
+          tofu('output', '-json')
         end
       end
 
