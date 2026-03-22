@@ -33,11 +33,15 @@ module Pangea
       end
 
       def load_default_namespace
-        yml = find_pangea_yml(@template_dir)
-        return nil unless yml
+        # Check workspace pangea.yml first, fall back to root
+        [@template_dir, Dir.pwd].uniq.each do |dir|
+          yml = find_pangea_yml(dir)
+          next unless yml
 
-        config = YAML.safe_load(File.read(yml)) || {}
-        config['default_namespace']
+          config = YAML.safe_load(File.read(yml)) || {}
+          return config['default_namespace'] if config['default_namespace']
+        end
+        nil
       end
 
       def build_workspace_dir
@@ -48,8 +52,11 @@ module Pangea
       end
 
       def resolve_backend_config
-        configs = [@template_dir, Dir.pwd].uniq.filter_map { |dir| load_pangea_yml(dir) }
-        merged = configs.reduce({}) { |acc, cfg| acc.merge(cfg) }
+        # Load root config first, then workspace — workspace wins on conflicts.
+        # Use deep_merge so nested keys (namespaces, state) compose correctly.
+        root_config = load_pangea_yml(Dir.pwd) || {}
+        ws_config = Dir.pwd == @template_dir ? {} : (load_pangea_yml(@template_dir) || {})
+        merged = deep_merge(root_config, ws_config)
 
         ns_config = merged.dig('namespaces', @namespace)
         return {} unless ns_config
@@ -88,6 +95,17 @@ module Pangea
         YAML.safe_load(File.read(path)) || {}
       rescue StandardError
         nil
+      end
+
+      # Recursively merge two hashes — values from `override` win on conflicts.
+      def deep_merge(base, override)
+        base.merge(override) do |_key, old_val, new_val|
+          if old_val.is_a?(Hash) && new_val.is_a?(Hash)
+            deep_merge(old_val, new_val)
+          else
+            new_val
+          end
+        end
       end
     end
   end

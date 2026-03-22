@@ -20,11 +20,13 @@ module Pangea
       # @param json_output [Boolean] if true, also print JSON to stdout
       # @return [String] path to the written .tf.json file
       def synth(json_output: false)
+        $stderr.puts "[pangea] Synthesizing #{config.template_file} [namespace: #{config.namespace}]"
         manifest = @synthesizer.synthesize
+        json = JSON.pretty_generate(manifest)
         output_path = File.join(config.workspace_dir, "#{config.template_name}.tf.json")
-        File.write(output_path, JSON.pretty_generate(manifest))
+        File.write(output_path, json)
         $stderr.puts "[pangea] Wrote #{output_path}"
-        $stdout.puts JSON.pretty_generate(manifest) if json_output
+        $stdout.puts json if json_output
         output_path
       end
 

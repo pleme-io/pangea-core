@@ -55,7 +55,6 @@ module Pangea
       def run_single(operation, template_file, namespace)
         config = Config.new(template_file, namespace: namespace)
         ops = Operations.new(config)
-        $stderr.puts "[pangea] Synthesizing #{template_file} [namespace: #{config.namespace}]"
 
         case operation
         when 'synth'  then ops.synth(json_output: true)
