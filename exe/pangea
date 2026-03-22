@@ -86,9 +86,29 @@ $stderr.puts "[pangea] Synthesizing #{template_file} [namespace: #{namespace}]"
 
 # Load pangea-core and provider gems via bundler's environment
 begin
-  require 'terraform_synthesizer'
+  require 'terraform-synthesizer'
 rescue LoadError
-  require 'abstract_synthesizer'
+  begin
+    require 'terraform_synthesizer'
+  rescue LoadError
+    require 'abstract-synthesizer'
+  end
+end
+
+# Load workspace-specific libraries (architectures, etc.)
+# The template directory and repo root may have lib/ directories
+[template_dir, Dir.pwd].uniq.each do |dir|
+  lib_dir = File.join(dir, 'lib')
+  $LOAD_PATH.unshift(lib_dir) if File.directory?(lib_dir) && !$LOAD_PATH.include?(lib_dir)
+end
+
+# Auto-require architecture modules if available
+%w[pangea/architectures pangea/workspace_config].each do |mod|
+  begin
+    require mod
+  rescue LoadError
+    # Optional — not all workspaces have these
+  end
 end
 
 # Load the template content
