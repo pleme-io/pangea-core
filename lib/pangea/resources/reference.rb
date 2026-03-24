@@ -102,7 +102,8 @@ module Pangea
         end
       end
 
-      # Method delegation to outputs, computed properties, and computed attributes
+      # Method delegation to outputs, computed properties, computed attributes,
+      # and finally a catch-all that generates a Terraform attribute reference.
       def method_missing(method_name, *args, &block)
         if outputs.key?(method_name)
           outputs[method_name]
@@ -112,6 +113,8 @@ module Pangea
           computed[method_name]
         elsif computed_attributes.respond_to?(method_name)
           computed_attributes.public_send(method_name, *args, &block)
+        elsif method_name.to_s.match?(/\A[a-z_][a-z0-9_]*\z/) && args.empty?
+          ref(method_name)
         else
           super
         end
@@ -122,6 +125,7 @@ module Pangea
           computed_properties&.key?(method_name) ||
           computed&.key?(method_name) ||
           computed_attributes.respond_to?(method_name, include_private) ||
+          method_name.to_s.match?(/\A[a-z_][a-z0-9_]*\z/) ||
           super
       end
 

@@ -156,8 +156,13 @@ RSpec.describe Pangea::Resources::ResourceReference do
       expect(ref.terraform_resource_name).to eq('aws_vpc.main')
     end
 
-    it 'raises NoMethodError for unknown methods' do
-      expect { ref.completely_unknown_method_xyz }.to raise_error(NoMethodError)
+    it 'generates terraform ref for unknown snake_case attributes' do
+      expect(ref.cidr_block).to eq('${aws_vpc.main.cidr_block}')
+      expect(ref.default_security_group_id).to eq('${aws_vpc.main.default_security_group_id}')
+    end
+
+    it 'raises NoMethodError for non-identifier methods' do
+      expect { ref.send(:'BadName!') }.to raise_error(NoMethodError)
     end
   end
 
@@ -181,8 +186,8 @@ RSpec.describe Pangea::Resources::ResourceReference do
       expect(ref.respond_to?(:terraform_resource_name)).to be true
     end
 
-    it 'returns false for unknown methods' do
-      expect(ref.respond_to?(:completely_unknown_method_xyz)).to be false
+    it 'returns true for any snake_case attribute name' do
+      expect(ref.respond_to?(:some_unknown_attr)).to be true
     end
   end
 
