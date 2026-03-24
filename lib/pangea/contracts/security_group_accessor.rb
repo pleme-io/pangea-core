@@ -1,4 +1,5 @@
 # frozen_string_literal: true
+
 # Copyright 2025 The Pangea Authors
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -13,11 +14,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Core types (must be loaded first)
-require_relative 'core'
+module Pangea
+  module Contracts
+    # Minimal accessor so templates can write result.cluster.security_group.id
+    class SecurityGroupAccessor
+      attr_reader :id
 
-# Coercion types — pragmatic type coercions for common mismatches
-require_relative 'coercions'
-
-# Provider types are loaded by their respective gems:
-# pangea-aws, pangea-cloudflare, pangea-hcloud
+      def initialize(sg_id)
+        @id = sg_id
+      end
+    end
+  end
+end

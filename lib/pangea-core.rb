@@ -93,3 +93,6 @@ require_relative 'pangea/tagging'
 
 # Provider contract
 require_relative 'pangea/provider_contract'
+
+# Contracts — typed interfaces for architecture results
+require_relative 'pangea/contracts'
