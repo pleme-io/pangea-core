@@ -85,6 +85,9 @@ require_relative 'pangea/resources/reference_generator'
 require_relative 'pangea/resources/resource_builder'
 require_relative 'pangea/resources/network_helpers'
 
+# Configuration presets
+require_relative 'pangea/presets'
+
 # Tagging and fingerprinting
 require_relative 'pangea/tagging'
 
