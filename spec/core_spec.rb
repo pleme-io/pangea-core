@@ -4,7 +4,7 @@ require 'spec_helper'
 
 RSpec.describe "PangeaCore" do
   it "has a version" do
-    expect(PangeaCore::VERSION).to eq("0.1.0")
+    expect(PangeaCore::VERSION).to eq("0.3.0")
   end
 
   it "defines ResourceReference" do
