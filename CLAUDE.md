@@ -422,3 +422,57 @@ mismatches from YAML configs, CLI args, and API responses.
 outputs and computed attributes. Calling `ref.id` is equivalent to
 `ref.outputs[:id]` or `ref.ref(:id)`. Unknown attributes raise
 `NoMethodError` with a helpful message listing available outputs.
+
+---
+
+### ResourceBuilder Strict Validation
+
+`ResourceBuilder` enforces strict unknown-key detection on attribute hashes.
+Any key not declared in the `Dry::Struct` attributes class raises an error at
+synthesis time, preventing silent typo-based misconfigurations.
+
+Terraform meta-arguments (`lifecycle`, `depends_on`, `count`, `for_each`,
+`provider`, `provisioner`) are separated before attribute validation. They
+are passed through to the resource block without type checking, so they never
+trigger unknown-key errors.
+
+---
+
+### TagSet and TagAdapter
+
+Canonical tagging system that handles provider-specific tag format differences.
+
+**TagSet** — immutable set of key-value tags with provider-specific transforms:
+- `TagSet.new(tags_hash)` creates a canonical tag set
+- `#for_provider(:aws)`, `#for_provider(:gcp)`, etc. produce provider-native format
+- Infrastructure params (e.g., `propagate_at_launch`) are NOT tags — use typed config fields
+
+**TagAdapter** — auto-detects the correct tag format per resource type:
+
+| Format family | Example resources | Shape |
+|---------------|-------------------|-------|
+| AWS map | `aws_vpc`, `aws_subnet` | `tags: { Key: "Value" }` |
+| ASG propagation | `aws_autoscaling_group` | `tag { key, value, propagate_at_launch }` blocks |
+| Tag specifications | `aws_launch_template` | `tag_specifications [{ resource_type, tags }]` |
+| GCP labels | `google_*` | `labels: { key: "value" }` |
+| Key-value arrays | `azurerm_*` | `tags: [{ key: "k", value: "v" }]` |
+| MongoDB objects | `mongodbatlas_*` | `tags: [{ key: "k", value: "v" }]` |
+
+---
+
+### Categorized Outputs
+
+Outputs are split into two categories for cleaner template ergonomics:
+
+| Helper | Category | Purpose |
+|--------|----------|---------|
+| `pangea_output` | data | Always emitted — used by downstream templates via `terraform_remote_state` |
+| `display_output` | display | Shown in terminal after apply — human-readable summaries |
+| `data_output` | data | Alias for `pangea_output` (explicit intent) |
+
+**Suppression:**
+- `suppress_display_outputs!` — hides display outputs (CI/CD mode)
+- `suppress_all_outputs!` — hides everything (library templates)
+
+Templates use `display_output` for human-facing values (URLs, IPs) and
+`data_output` / `pangea_output` for machine-consumed values (IDs, ARNs).
