@@ -30,45 +30,84 @@ module Pangea
       def initialize
         @vpc = nil
         @sg = nil
-        @subnets = []
+        @subnets = { public: [], web: [], data: [] }
       end
 
-      # Add a subnet to the ordered list
-      def add_subnet(name, ref)
-        @subnets << { name: name, ref: ref }
+      # ── Tiered Subnet Management ──────────────────────────────────
+      # Three tiers: public (NLBs, bastions), web (K8s nodes), data (databases)
+      # Each tier has its own subnets, route table, and routing.
+
+      # Add a subnet to a specific tier.
+      # @param name [Symbol] unique name (e.g., :public_a, :web_a, :data_b)
+      # @param ref [ResourceReference] the subnet resource reference
+      # @param tier [Symbol] :public, :web, or :data (default: :public for backward compat)
+      def add_subnet(name, ref, tier: :public)
+        tier_sym = tier.to_sym
+        @subnets[tier_sym] ||= []
+        @subnets[tier_sym] << { name: name, ref: ref }
       end
 
-      # All subnets as an array of resource references
+      # All subnets across all tiers (backward compatible)
       def subnets
-        @subnets.map { |s| s[:ref] }
+        @subnets.values.flatten.map { |s| s[:ref] }
       end
 
-      # Alias used by templates (e.g., akeyless_dev_cluster.rb)
-      alias public_subnets subnets
+      # Public subnets only (internet-facing: NLBs, NAT gateways)
+      def public_subnets
+        (@subnets[:public] || []).map { |s| s[:ref] }
+      end
 
-      # Subnet IDs as an array of strings (terraform refs)
+      # Web tier subnets (K8s nodes, application workloads)
+      def web_subnets
+        (@subnets[:web] || []).map { |s| s[:ref] }
+      end
+
+      # Data tier subnets (databases, caches, internal services)
+      def data_subnets
+        (@subnets[:data] || []).map { |s| s[:ref] }
+      end
+
+      # Public subnet IDs
+      def public_subnet_ids
+        public_subnets.map(&:id)
+      end
+
+      # Web tier subnet IDs
+      def web_subnet_ids
+        web_subnets.map(&:id)
+      end
+
+      # Data tier subnet IDs
+      def data_subnet_ids
+        data_subnets.map(&:id)
+      end
+
+      # All subnet IDs across all tiers (backward compatible)
       def subnet_ids
         subnets.map(&:id)
       end
 
-      # Hash-style access for backward compatibility with existing code
-      # that uses result.network[:vpc], result.network[:sg], etc.
+      # Hash-style access for backward compatibility
       def [](key)
         case key.to_sym
         when :vpc then vpc
         when :sg then sg
         when :public_subnets then public_subnets
+        when :web_subnets then web_subnets
+        when :data_subnets then data_subnets
         when :subnet_ids then subnet_ids
+        when :public_subnet_ids then public_subnet_ids
+        when :web_subnet_ids then web_subnet_ids
+        when :data_subnet_ids then data_subnet_ids
         when :subnets then subnets
         else
-          # Support :subnet_a, :subnet_b legacy keys
-          match = @subnets.find { |s| s[:name] == key.to_sym }
+          # Support named keys like :subnet_a, :public_a, :web_b
+          all_subnets = @subnets.values.flatten
+          match = all_subnets.find { |s| s[:name] == key.to_sym }
           match&.dig(:ref)
         end
       end
 
-      # Hash-like iteration for backward compatibility (e.g., resolve_subnet_ids
-      # in aws_nixos.rb uses .select { |k, _| k.to_s.start_with?('subnet_') })
       def select(&block)
         to_h.select(&block)
       end
@@ -77,7 +116,9 @@ module Pangea
         hash = {}
         hash[:vpc] = vpc if vpc
         hash[:sg] = sg if sg
-        @subnets.each { |s| hash[s[:name]] = s[:ref] }
+        @subnets.each do |tier, subs|
+          subs.each { |s| hash[s[:name]] = s[:ref] }
+        end
         hash
       end
 
@@ -85,15 +126,12 @@ module Pangea
         to_h.dig(*keys)
       end
 
-      # Hash-like key checks for backward compatibility with RSpec have_key matcher
       def key?(key)
         !self[key].nil?
       end
       alias has_key? key?
       alias include? key?
 
-      # Validate the contract — vpc is required for a valid network result.
-      # Raises ContractError if the contract is violated.
       def validate!
         raise ContractError, 'NetworkResult requires a vpc reference' if vpc.nil?
       end
