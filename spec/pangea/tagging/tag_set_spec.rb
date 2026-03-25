@@ -134,6 +134,99 @@ RSpec.describe Pangea::Tagging::TagSet do
     end
   end
 
+  describe '#to_kubernetes' do
+    it 'lowercases keys and preserves / and . characters' do
+      ts = described_class.new('app.kubernetes.io/name' => 'my-app', ManagedBy: 'pangea')
+      result = ts.to_kubernetes
+      expect(result).to have_key('app.kubernetes.io/name')
+      expect(result['app.kubernetes.io/name']).to eq('my-app')
+      expect(result['managedby']).to eq('pangea')
+    end
+
+    it 'replaces invalid characters with dashes' do
+      ts = described_class.new('Special!Key' => 'value')
+      result = ts.to_kubernetes
+      expect(result).to have_key('special-key')
+    end
+  end
+
+  describe '#to_kubernetes_annotations' do
+    it 'returns string-keyed hash without sanitization' do
+      ts = described_class.new(ManagedBy: 'pangea', 'Custom.Key!' => 'any value')
+      result = ts.to_kubernetes_annotations
+      expect(result).to be_a(Hash)
+      expect(result['ManagedBy']).to eq('pangea')
+      expect(result['Custom.Key!']).to eq('any value')
+    end
+  end
+
+  describe '#to_vault' do
+    it 'returns array of key:value strings' do
+      result = tag_set.to_vault
+      expect(result).to be_an(Array)
+      expect(result).to include('ManagedBy:pangea')
+      expect(result).to include('Name:test-vpc')
+    end
+  end
+
+  describe '#to_mongodbatlas' do
+    it 'returns array of {key:, value:} hashes' do
+      result = tag_set.to_mongodbatlas
+      expect(result).to be_an(Array)
+      expect(result.length).to eq(4)
+      entry = result.find { |t| t[:key] == 'ManagedBy' }
+      expect(entry).not_to be_nil
+      expect(entry[:value]).to eq('pangea')
+    end
+
+    it 'converts keys and values to strings' do
+      ts = described_class.new(count: 42)
+      result = ts.to_mongodbatlas
+      expect(result.first[:key]).to eq('count')
+      expect(result.first[:value]).to eq('42')
+    end
+  end
+
+  describe '#to_github_labels' do
+    it 'returns array of key strings only' do
+      result = tag_set.to_github_labels
+      expect(result).to be_an(Array)
+      expect(result).to include('ManagedBy')
+      expect(result).to include('Name')
+      expect(result.length).to eq(4)
+    end
+  end
+
+  describe '#to_consul' do
+    it 'returns same format as AWS' do
+      expect(tag_set.to_consul).to eq(tag_set.to_aws)
+    end
+  end
+
+  describe '#to_nomad' do
+    it 'returns same format as GCP' do
+      expect(tag_set.to_nomad).to eq(tag_set.to_gcp)
+    end
+  end
+
+  describe '#for_resource' do
+    it 'delegates to TagAdapter for AWS resources' do
+      result = tag_set.for_resource(:aws_vpc)
+      expect(result).to eq({ tags: tag_set.to_aws })
+    end
+
+    it 'delegates to TagAdapter for GCP resources' do
+      result = tag_set.for_resource(:google_compute_instance)
+      expect(result).to eq({ labels: tag_set.to_gcp })
+    end
+
+    it 'delegates to TagAdapter for AWS ASG' do
+      result = tag_set.for_resource(:aws_autoscaling_group)
+      expect(result[:tag]).to be_an(Array)
+      expect(result[:tag].first[:propagate_at_launch]).to be true
+    end
+  end
+
   describe 'integration with Fingerprint' do
     it 'wraps Fingerprint.tags output' do
       fp = Pangea::Tagging::Fingerprint.new(

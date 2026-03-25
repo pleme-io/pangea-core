@@ -93,6 +93,22 @@ module Pangea
         to_gcp
       end
 
+      # ── Kubernetes Format ─────────────────────────────────────
+      # Kubernetes labels: lowercase keys with optional prefix (e.g., "app.kubernetes.io/name")
+      # Same sanitization as GCP but allows "/" and "." in keys
+      def to_kubernetes
+        @entries.each_with_object({}) do |(k, v), h|
+          key = k.to_s.downcase.gsub(/[^a-z0-9_.\/\-]/, '-')
+          val = v.to_s
+          h[key] = val
+        end
+      end
+
+      # Kubernetes annotations: arbitrary key-value (no sanitization needed)
+      def to_kubernetes_annotations
+        @entries.transform_keys(&:to_s)
+      end
+
       # ── Cloudflare Format ──────────────────────────────────────
 
       # Cloudflare tags: array of "key:value" strings
@@ -107,6 +123,44 @@ module Pangea
       # Used by: datadog_monitor, datadog_dashboard, etc.
       def to_datadog
         @entries.map { |k, v| "#{k}:#{v}" }
+      end
+
+      # ── Vault Format ──────────────────────────────────────────
+      # Vault tags: array of "key:value" strings
+      def to_vault
+        @entries.map { |k, v| "#{k}:#{v}" }
+      end
+
+      # ── MongoDBAtlas Format ────────────────────────────────────
+      # MongoDB Atlas tags: array of {key: "K", value: "V"} objects
+      def to_mongodbatlas
+        @entries.map { |k, v| { key: k.to_s, value: v.to_s } }
+      end
+
+      # ── GitHub Format ─────────────────────────────────────────
+      # GitHub labels: simple string array (just the keys, no values)
+      def to_github_labels
+        @entries.keys.map(&:to_s)
+      end
+
+      # ── Consul Format ─────────────────────────────────────────
+      # Consul: simple map like AWS
+      def to_consul
+        to_aws
+      end
+
+      # ── Nomad Format ──────────────────────────────────────────
+      # Nomad: uses "meta" block with lowercase keys
+      def to_nomad
+        to_gcp
+      end
+
+      # ── Auto-format Detection ─────────────────────────────────
+
+      # Transform for a specific resource type (auto-detect format).
+      # Returns { attribute_name => transformed_value }
+      def for_resource(resource_type)
+        TagAdapter.transform(self, resource_type)
       end
 
       # ── Raw Access ─────────────────────────────────────────────
