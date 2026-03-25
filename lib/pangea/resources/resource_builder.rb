@@ -108,15 +108,18 @@ module Pangea
 
       def _synthesize_block(block_type, tf_type, name, attrs, map, map_present, map_bool, tags, labels, custom_block)
         send(block_type, tf_type, name) do
-          map.each { |attr| __send__(attr, attrs.public_send(attr)) }
-          map_present.each { |attr| val = attrs.public_send(attr); __send__(attr, val) if val }
-          map_bool.each { |attr| val = attrs.public_send(attr); __send__(attr, val) unless val.nil? }
+          # Use attrs[attr] (hash-style access) instead of attrs.public_send(attr)
+          # to safely handle attribute names that shadow Ruby built-in methods
+          # (e.g., :type, :send, :hash, :id, :class, :method, :display, :freeze).
+          map.each { |attr| __send__(attr, attrs[attr]) }
+          map_present.each { |attr| val = attrs[attr]; __send__(attr, val) if val }
+          map_bool.each { |attr| val = attrs[attr]; __send__(attr, val) unless val.nil? }
           if tags
-            tag_val = attrs.public_send(tags)
+            tag_val = attrs[tags]
             __send__(tags, tag_val) if tag_val&.any?
           end
           if labels
-            label_val = attrs.public_send(labels)
+            label_val = attrs[labels]
             __send__(labels, label_val) if label_val&.any?
           end
           instance_exec(self, attrs, &custom_block) if custom_block
