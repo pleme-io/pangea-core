@@ -50,6 +50,17 @@ module Pangea
           @_resource_definitions[tf_type] = _store_definition(attributes_class, outputs, map, map_present, map_bool, tags, labels)
 
           define_method(tf_type) do |name, attributes = {}|
+            # Detect unknown keys before Dry::Struct silently drops them
+            if attributes.is_a?(Hash)
+              known = attributes_class.schema.map { |k| k.name }.to_set
+              unknown = attributes.keys.map(&:to_sym) - known.to_a
+              unless unknown.empty?
+                raise ArgumentError,
+                  "#{tf_type}: unknown attributes #{unknown.inspect}. " \
+                  "Valid attributes: #{known.to_a.sort.inspect}. " \
+                  "Typo? Check Terraform docs for the correct attribute name."
+              end
+            end
             attrs = attributes_class.new(attributes)
             _synthesize_block(:resource, tf_type, name, attrs, map, map_present, map_bool, tags, labels, custom_block)
             _build_reference(tf_type.to_s, name, attrs, outputs)
@@ -80,6 +91,16 @@ module Pangea
           @_data_definitions[tf_type] = _store_definition(attributes_class, outputs, map, map_present, map_bool, tags, labels)
 
           define_method(method_name) do |name, attributes = {}|
+            # Detect unknown keys before Dry::Struct silently drops them
+            if attributes.is_a?(Hash)
+              known = attributes_class.schema.map { |k| k.name }.to_set
+              unknown = attributes.keys.map(&:to_sym) - known.to_a
+              unless unknown.empty?
+                raise ArgumentError,
+                  "data.#{tf_type}: unknown attributes #{unknown.inspect}. " \
+                  "Valid attributes: #{known.to_a.sort.inspect}."
+              end
+            end
             attrs = attributes_class.new(attributes)
             _synthesize_block(:data, tf_type, name, attrs, map, map_present, map_bool, tags, labels, custom_block)
             _build_reference("data.#{tf_type}", name, attrs, outputs)
