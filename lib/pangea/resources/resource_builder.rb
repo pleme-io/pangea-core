@@ -50,10 +50,20 @@ module Pangea
           @_resource_definitions[tf_type] = _store_definition(attributes_class, outputs, map, map_present, map_bool, tags, labels)
 
           define_method(tf_type) do |name, attributes = {}|
-            # Detect unknown keys before Dry::Struct silently drops them
+            # Separate Terraform meta-arguments from resource attributes.
+            # Meta-arguments (lifecycle, depends_on, count, for_each, provider,
+            # provisioner) are NOT resource attributes — they're Terraform
+            # block-level directives that go directly into the synthesizer.
+            meta_args = {}
+            resource_attrs = attributes
             if attributes.is_a?(Hash)
+              meta_keys = %i[lifecycle depends_on count for_each provider provisioner]
+              meta_args = attributes.select { |k, _| meta_keys.include?(k.to_sym) }
+              resource_attrs = attributes.reject { |k, _| meta_keys.include?(k.to_sym) }
+
+              # Detect unknown keys (typos, wrong attribute names)
               known = attributes_class.schema.map { |k| k.name }.to_set
-              unknown = attributes.keys.map(&:to_sym) - known.to_a
+              unknown = resource_attrs.keys.map(&:to_sym) - known.to_a
               unless unknown.empty?
                 raise ArgumentError,
                   "#{tf_type}: unknown attributes #{unknown.inspect}. " \
@@ -61,8 +71,8 @@ module Pangea
                   "Typo? Check Terraform docs for the correct attribute name."
               end
             end
-            attrs = attributes_class.new(attributes)
-            _synthesize_block(:resource, tf_type, name, attrs, map, map_present, map_bool, tags, labels, custom_block)
+            attrs = attributes_class.new(resource_attrs)
+            _synthesize_block(:resource, tf_type, name, attrs, map, map_present, map_bool, tags, labels, custom_block, meta_args)
             _build_reference(tf_type.to_s, name, attrs, outputs)
           end
         end
@@ -127,7 +137,7 @@ module Pangea
 
       private
 
-      def _synthesize_block(block_type, tf_type, name, attrs, map, map_present, map_bool, tags, labels, custom_block)
+      def _synthesize_block(block_type, tf_type, name, attrs, map, map_present, map_bool, tags, labels, custom_block, meta_args = {})
         send(block_type, tf_type, name) do
           # Use attrs[attr] (hash-style access) instead of attrs.public_send(attr)
           # to safely handle attribute names that shadow Ruby built-in methods
@@ -144,6 +154,17 @@ module Pangea
             __send__(labels, label_val) if label_val&.any?
           end
           instance_exec(self, attrs, &custom_block) if custom_block
+
+          # Emit Terraform meta-arguments (lifecycle, depends_on, etc.)
+          meta_args.each do |meta_key, meta_val|
+            if meta_val.is_a?(Hash)
+              __send__(meta_key) do
+                meta_val.each { |k, v| __send__(k, v) }
+              end
+            else
+              __send__(meta_key, meta_val)
+            end
+          end
         end
       end
 
