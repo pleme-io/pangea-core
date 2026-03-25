@@ -34,6 +34,14 @@ lib/
       synthesis_test_helpers.rb     # RSpec helpers: create_synthesizer, normalize_synthesis, validate_*
       mock_terraform_synthesizer.rb # Fallback mock for testing
       spec_setup.rb                 # SpecSetup.configure!
+    contracts.rb                    # Typed interface contracts (require aggregator)
+    contracts/
+      architecture_result.rb        # ArchitectureResult contract
+      cluster_result.rb             # ClusterResult contract
+      iam_result.rb                 # IamResult contract
+      network_result.rb             # NetworkResult contract
+      security_group_accessor.rb    # SecurityGroupAccessor contract
+      errors.rb                     # Contract violation errors
     resource_registry.rb            # Auto-discovery of provider modules
     component_registry.rb           # Thread-safe component registry
     validation.rb                   # Cross-cutting validation
@@ -375,4 +383,42 @@ validate_resource_references(result)
 - **Type bypass:** Terraform references (`${...}`) skip type validation via `BaseAttributes.new` override
 - **`BaseAttributes`** provides `terraform_reference?`, `terraform_ref_or`, `copy_with`
 - **`ResourceBuilder` DSL:** `define_resource` / `define_data` with `map`, `map_present`, `map_bool`, `tags`, `labels`
+- **Coercion types:** `PortString` (Integer->String), `PortInt` (String->Integer, 0-65535), `CoercibleBool` (String/Integer->Bool)
 - **Future:** RBS signatures for static analysis (no Sorbet migration)
+
+---
+
+### Contracts Module (Pangea::Contracts)
+
+Typed interfaces that backends must return and templates can rely on. Each
+contract is a Dry::Struct defining required/optional fields with type validation.
+
+| Contract | Purpose | Key fields |
+|----------|---------|------------|
+| `NetworkResult` | VPC/network phase output | vpc, subnets, security_groups, nat |
+| `IamResult` | IAM phase output | roles, policies, instance_profiles |
+| `ClusterResult` | Cluster phase output | control_plane, endpoint, certificate_authority |
+| `ArchitectureResult` | Full architecture return | network, iam, cluster, node_pools |
+
+Backends return these contracts from their phase methods. Templates and
+architectures can rely on the typed fields without provider-specific knowledge.
+`SecurityGroupAccessor` provides a unified interface for accessing SG IDs
+across providers.
+
+### Coercion Types
+
+Located in `lib/pangea/resources/types/coercions.rb`. Handle common type
+mismatches from YAML configs, CLI args, and API responses.
+
+| Type | Accepts | Produces | Use case |
+|------|---------|----------|----------|
+| `PortString` | Integer, String | String | AWS health_check.port, listener.port |
+| `PortInt` | String, Integer | Integer (0-65535) | Port number validation |
+| `CoercibleBool` | String, Integer, Bool | Bool | YAML/CLI boolean coercion |
+
+### ResourceReference method_missing
+
+`ResourceReference` uses `method_missing` as a catch-all to delegate to
+outputs and computed attributes. Calling `ref.id` is equivalent to
+`ref.outputs[:id]` or `ref.ref(:id)`. Unknown attributes raise
+`NoMethodError` with a helpful message listing available outputs.
