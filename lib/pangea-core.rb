@@ -96,3 +96,6 @@ require_relative 'pangea/provider_contract'
 
 # Contracts — typed interfaces for architecture results
 require_relative 'pangea/contracts'
+
+# Outputs — categorized output management (display vs data)
+require_relative 'pangea/outputs'
