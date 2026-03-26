@@ -22,7 +22,7 @@ Gem::Specification.new do |spec|
     f.match(%r{^(test|spec|features)/})
   end
 
-  spec.add_dependency "terraform-synthesizer", "~> 0.0.28"
+  spec.add_dependency "terraform-synthesizer", ">= 0.0.28"
   spec.add_dependency "dry-types", "~> 1.7"
   spec.add_dependency "dry-struct", "~> 1.6"
   spec.add_dependency "base64"
