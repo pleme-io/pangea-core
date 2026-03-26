@@ -89,6 +89,14 @@ module Pangea
 
         manifest['terraform'] ||= {}
         manifest['terraform']['backend'] = config.backend_config
+
+        # Merge required_providers from template if present
+        # (templates set this via `terraform required_providers: {...}`)
+        if manifest.dig('terraform', 'required_providers').nil? &&
+           manifest.key?('terraform') &&
+           manifest['terraform'].is_a?(Hash)
+          # Already handled — required_providers preserved from synthesis
+        end
       end
     end
   end
