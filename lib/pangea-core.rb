@@ -99,3 +99,6 @@ require_relative 'pangea/contracts'
 
 # Outputs — categorized output management (display vs data)
 require_relative 'pangea/outputs'
+
+# Remote state — cross-template output references via direct S3 reads
+require_relative 'pangea/remote_state'
