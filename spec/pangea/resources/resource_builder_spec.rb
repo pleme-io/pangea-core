@@ -357,4 +357,82 @@ RSpec.describe Pangea::Resources::ResourceBuilder do
       expect(defs[:test_simple][:outputs]).to eq({ id: :id, self_link: :self_link })
     end
   end
+
+  describe '.define_data' do
+    before(:all) do
+      unless defined?(TestDataAttributes)
+        TestDataAttributes = Class.new(Pangea::Resources::BaseAttributes) do
+          attribute :path, Dry::Types['strict.string']
+          attribute :name, Dry::Types['strict.string'].optional.default(nil)
+        end
+      end
+
+      unless defined?(TestDataSource)
+        TestDataSource = Module.new do
+          include Pangea::Resources::ResourceBuilder
+
+          define_data :test_data_source,
+            attributes_class: TestDataAttributes,
+            outputs: { id: :id, value: :value },
+            map: [:path],
+            map_present: [:name]
+        end
+      end
+    end
+
+    it 'defines a method prefixed with data_' do
+      synth.extend(TestDataSource)
+      expect(synth).to respond_to(:data_test_data_source)
+    end
+
+    it 'creates a data source block in synthesis' do
+      synth.extend(TestDataSource)
+      synth.data_test_data_source(:my_data, { path: '/secret/path' })
+      result = normalize_synthesis(synth.synthesis)
+
+      config = result.dig('data', 'test_data_source', 'my_data')
+      expect(config).not_to be_nil
+      expect(config['path']).to eq('/secret/path')
+    end
+
+    it 'returns ResourceReference with data. prefix in outputs' do
+      synth.extend(TestDataSource)
+      ref = synth.data_test_data_source(:my_data, { path: '/secret/path' })
+
+      expect(ref).to be_a(Pangea::Resources::ResourceReference)
+      expect(ref.type).to eq('data.test_data_source')
+      expect(ref.outputs[:id]).to eq('${data.test_data_source.my_data.id}')
+      expect(ref.outputs[:value]).to eq('${data.test_data_source.my_data.value}')
+    end
+
+    it 'includes map_present attributes when non-nil' do
+      synth.extend(TestDataSource)
+      synth.data_test_data_source(:my_data, { path: '/path', name: 'named' })
+      result = normalize_synthesis(synth.synthesis)
+
+      config = result.dig('data', 'test_data_source', 'my_data')
+      expect(config['name']).to eq('named')
+    end
+
+    it 'raises ArgumentError for unknown attribute keys' do
+      synth.extend(TestDataSource)
+      expect {
+        synth.data_test_data_source(:my_data, { path: '/path', bogus_key: 'x' })
+      }.to raise_error(ArgumentError, /unknown attributes.*bogus_key/)
+    end
+  end
+
+  describe '.data_definitions' do
+    it 'returns empty hash for modules without data definitions' do
+      mod = Module.new { include Pangea::Resources::ResourceBuilder }
+      expect(mod.data_definitions).to eq({})
+    end
+
+    it 'returns metadata for defined data sources' do
+      defs = TestDataSource.data_definitions
+      expect(defs).to have_key(:test_data_source)
+      expect(defs[:test_data_source][:attributes_class]).to eq(TestDataAttributes)
+      expect(defs[:test_data_source][:outputs]).to eq({ id: :id, value: :value })
+    end
+  end
 end
