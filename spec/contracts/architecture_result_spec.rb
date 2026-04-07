@@ -96,5 +96,75 @@ RSpec.describe Pangea::Contracts::ArchitectureResult do
       expect(hash[:iam]).to be_nil
       expect(hash[:node_pools]).to eq({})
     end
+
+    it 'serializes network when set to a Hash-returning object' do
+      allow(config).to receive(:respond_to?).and_return(false)
+      network = double('network')
+      allow(network).to receive(:respond_to?).with(:to_h).and_return(true)
+      allow(network).to receive(:to_h).and_return({ vpc: 'vpc-123' })
+      result.network = network
+
+      hash = result.to_h
+      expect(hash[:network]).to eq({ vpc: 'vpc-123' })
+    end
+
+    it 'serializes iam when set to a Hash-returning object' do
+      allow(config).to receive(:respond_to?).and_return(false)
+      iam = double('iam')
+      allow(iam).to receive(:respond_to?).with(:to_h).and_return(true)
+      allow(iam).to receive(:to_h).and_return({ role: 'role-arn' })
+      result.iam = iam
+
+      hash = result.to_h
+      expect(hash[:iam]).to eq({ role: 'role-arn' })
+    end
+
+    it 'serializes network as-is when it does not respond to to_h' do
+      allow(config).to receive(:respond_to?).and_return(false)
+      result.network = 'raw-network-value'
+      hash = result.to_h
+      expect(hash[:network]).to eq('raw-network-value')
+    end
+
+    it 'serializes iam as-is when it does not respond to to_h' do
+      allow(config).to receive(:respond_to?).and_return(false)
+      result.iam = 'raw-iam-value'
+      hash = result.to_h
+      expect(hash[:iam]).to eq('raw-iam-value')
+    end
+
+    it 'serializes node_pools with to_h when available' do
+      allow(config).to receive(:respond_to?).and_return(false)
+      pool = double('pool')
+      allow(pool).to receive(:respond_to?).with(:to_h).and_return(true)
+      allow(pool).to receive(:to_h).and_return({ asg: 'asg-123' })
+      result.add_node_pool(:workers, pool)
+
+      hash = result.to_h
+      expect(hash[:node_pools][:workers]).to eq({ asg: 'asg-123' })
+    end
+
+    it 'handles config without optional methods' do
+      simple_config = double('simple_config')
+      allow(simple_config).to receive(:respond_to?).and_return(false)
+      r = described_class.new(:simple, simple_config)
+      hash = r.to_h
+      expect(hash[:backend]).to be_nil
+      expect(hash[:kubernetes_version]).to be_nil
+      expect(hash[:region]).to be_nil
+      expect(hash[:managed_kubernetes]).to be_nil
+    end
+  end
+
+  describe '#respond_to_missing?' do
+    it 'returns true for cluster methods when cluster is set' do
+      cp_ref = double('cp_ref', id: 'cp-1', arn: 'arn:1', to_h: {}, nlb: nil, sg_id: nil)
+      result.cluster = cp_ref
+      expect(result.respond_to?(:nlb)).to be true
+    end
+
+    it 'returns false for unknown methods when no cluster' do
+      expect(result.respond_to?(:nonexistent_xyz)).to be false
+    end
   end
 end

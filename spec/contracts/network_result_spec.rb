@@ -45,10 +45,61 @@ RSpec.describe Pangea::Contracts::NetworkResult do
     end
   end
 
-  describe '#public_subnets' do
-    it 'is an alias for subnets' do
-      result.add_subnet(:subnet_a, subnet_a_ref)
-      expect(result.public_subnets).to eq(result.subnets)
+  describe 'tiered subnets' do
+    let(:web_ref) { double('web_ref', id: 'subnet-web') }
+    let(:data_ref) { double('data_ref', id: 'subnet-data') }
+
+    it '#public_subnets returns only public tier' do
+      result.add_subnet(:pub_a, subnet_a_ref, tier: :public)
+      result.add_subnet(:web_a, web_ref, tier: :web)
+      expect(result.public_subnets).to eq([subnet_a_ref])
+    end
+
+    it '#web_subnets returns only web tier' do
+      result.add_subnet(:pub_a, subnet_a_ref, tier: :public)
+      result.add_subnet(:web_a, web_ref, tier: :web)
+      expect(result.web_subnets).to eq([web_ref])
+    end
+
+    it '#data_subnets returns only data tier' do
+      result.add_subnet(:data_a, data_ref, tier: :data)
+      expect(result.data_subnets).to eq([data_ref])
+    end
+
+    it '#public_subnet_ids returns IDs for public tier' do
+      result.add_subnet(:pub_a, subnet_a_ref, tier: :public)
+      expect(result.public_subnet_ids).to eq(['subnet-a'])
+    end
+
+    it '#web_subnet_ids returns IDs for web tier' do
+      result.add_subnet(:web_a, web_ref, tier: :web)
+      expect(result.web_subnet_ids).to eq(['subnet-web'])
+    end
+
+    it '#data_subnet_ids returns IDs for data tier' do
+      result.add_subnet(:data_a, data_ref, tier: :data)
+      expect(result.data_subnet_ids).to eq(['subnet-data'])
+    end
+
+    it '#subnets returns all tiers combined' do
+      result.add_subnet(:pub_a, subnet_a_ref, tier: :public)
+      result.add_subnet(:web_a, web_ref, tier: :web)
+      result.add_subnet(:data_a, data_ref, tier: :data)
+      expect(result.subnets).to contain_exactly(subnet_a_ref, web_ref, data_ref)
+    end
+
+    it '[] accesses web_subnets and data_subnets by key' do
+      result.add_subnet(:web_a, web_ref, tier: :web)
+      result.add_subnet(:data_a, data_ref, tier: :data)
+      expect(result[:web_subnets]).to eq([web_ref])
+      expect(result[:data_subnets]).to eq([data_ref])
+      expect(result[:web_subnet_ids]).to eq(['subnet-web'])
+      expect(result[:data_subnet_ids]).to eq(['subnet-data'])
+    end
+
+    it '[] accesses public_subnet_ids by key' do
+      result.add_subnet(:pub_a, subnet_a_ref)
+      expect(result[:public_subnet_ids]).to eq(['subnet-a'])
     end
   end
 
