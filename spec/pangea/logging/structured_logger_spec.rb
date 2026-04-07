@@ -196,4 +196,90 @@ RSpec.describe Pangea::Logging::StructuredLogger do
       expect(entry['ruby_version']).to eq(RUBY_VERSION)
     end
   end
+
+  describe 'format auto-detection' do
+    it 'uses json format when PANGEA_LOG_FORMAT=json' do
+      allow(ENV).to receive(:[]).and_call_original
+      allow(ENV).to receive(:[]).with('PANGEA_LOG_FORMAT').and_return('json')
+      allow(ENV).to receive(:[]).with('PANGEA_ENV').and_return(nil)
+      l = described_class.new(output: output, level: :debug)
+      expect(l.output_format).to eq(:json)
+    end
+
+    it 'uses pretty format when PANGEA_LOG_FORMAT=pretty' do
+      allow(ENV).to receive(:[]).and_call_original
+      allow(ENV).to receive(:[]).with('PANGEA_LOG_FORMAT').and_return('pretty')
+      allow(ENV).to receive(:[]).with('PANGEA_ENV').and_return(nil)
+      l = described_class.new(output: output, level: :debug)
+      expect(l.output_format).to eq(:pretty)
+    end
+
+    it 'uses logfmt format when PANGEA_LOG_FORMAT=logfmt' do
+      allow(ENV).to receive(:[]).and_call_original
+      allow(ENV).to receive(:[]).with('PANGEA_LOG_FORMAT').and_return('logfmt')
+      allow(ENV).to receive(:[]).with('PANGEA_ENV').and_return(nil)
+      l = described_class.new(output: output, level: :debug)
+      expect(l.output_format).to eq(:logfmt)
+    end
+
+    it 'uses simple format when PANGEA_LOG_FORMAT=simple' do
+      allow(ENV).to receive(:[]).and_call_original
+      allow(ENV).to receive(:[]).with('PANGEA_LOG_FORMAT').and_return('simple')
+      allow(ENV).to receive(:[]).with('PANGEA_ENV').and_return(nil)
+      l = described_class.new(output: output, level: :debug)
+      expect(l.output_format).to eq(:simple)
+    end
+
+    it 'defaults to json in production' do
+      allow(ENV).to receive(:[]).and_call_original
+      allow(ENV).to receive(:[]).with('PANGEA_LOG_FORMAT').and_return(nil)
+      allow(ENV).to receive(:[]).with('PANGEA_ENV').and_return('production')
+      l = described_class.new(output: output, level: :debug)
+      expect(l.output_format).to eq(:json)
+    end
+
+    it 'defaults to pretty in non-production' do
+      allow(ENV).to receive(:[]).and_call_original
+      allow(ENV).to receive(:[]).with('PANGEA_LOG_FORMAT').and_return(nil)
+      allow(ENV).to receive(:[]).with('PANGEA_ENV').and_return(nil)
+      l = described_class.new(output: output, level: :debug)
+      expect(l.output_format).to eq(:pretty)
+    end
+  end
+end
+
+RSpec.describe Pangea::Logging do
+  describe '.logger' do
+    it 'returns a StructuredLogger instance' do
+      expect(described_class.logger).to be_a(Pangea::Logging::StructuredLogger)
+    end
+
+    it 'memoizes the logger' do
+      logger1 = described_class.logger
+      logger2 = described_class.logger
+      expect(logger1).to equal(logger2)
+    end
+  end
+
+  describe '.logger=' do
+    it 'allows setting a custom logger' do
+      original = described_class.logger
+      custom = Pangea::Logging::StructuredLogger.new(output: StringIO.new)
+      described_class.logger = custom
+      expect(described_class.logger).to equal(custom)
+      described_class.logger = original
+    end
+  end
+
+  describe 'method delegation' do
+    it 'delegates log methods to the logger' do
+      expect(described_class.respond_to?(:info)).to be true
+      expect(described_class.respond_to?(:error)).to be true
+      expect(described_class.respond_to?(:debug)).to be true
+    end
+
+    it 'returns false for unknown methods' do
+      expect(described_class.respond_to?(:nonexistent_method_xyz)).to be false
+    end
+  end
 end
