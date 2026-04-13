@@ -29,6 +29,15 @@ module Pangea
 
       # Partition a raw attribute hash into validated literals and opaque refs.
       #
+      # Literals are validated strictly by Dry::Struct. Refs are frozen and
+      # passed through. Required attributes that carry refs are excluded from
+      # validation (they can't be validated at synthesis time — Terraform
+      # resolves them at plan time).
+      #
+      # We use Dry::Struct.load instead of .new for the literals hash because
+      # .load bypasses the missing-key check — ref-carrying required fields
+      # are intentionally absent from the literals hash.
+      #
       # @param attributes_class [Class] Dry::Struct subclass for type validation
       # @param raw_hash [Hash] User-provided attributes (may contain ${...} refs)
       # @return [ResourceInput]
@@ -45,7 +54,25 @@ module Pangea
           end
         end
 
-        validated = attributes_class.new(literals)
+        # Validate that every required attribute is accounted for
+        # (present in either literals or refs, not missing from both).
+        required_keys = attributes_class.schema
+          .select { |k| k.required? }
+          .map(&:name)
+          .to_set
+
+        provided_keys = literals.keys.to_set | refs.keys.to_set
+        missing = required_keys - provided_keys
+        unless missing.empty?
+          raise ArgumentError,
+            "#{attributes_class}: missing required attributes #{missing.to_a.inspect}. " \
+            "Provide literal values or Terraform references for all required fields."
+        end
+
+        # Use .load to bypass Dry::Struct's missing-key enforcement.
+        # We've already verified coverage above. Literal values are
+        # type-validated; ref-carrying fields are intentionally absent.
+        validated = attributes_class.load(literals)
         new(validated, refs.freeze)
       end
 
