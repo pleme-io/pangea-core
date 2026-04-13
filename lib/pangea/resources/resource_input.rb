@@ -69,9 +69,27 @@ module Pangea
             "Provide literal values or Terraform references for all required fields."
         end
 
-        # Use .load to bypass Dry::Struct's missing-key enforcement.
-        # We've already verified coverage above. Literal values are
-        # type-validated; ref-carrying fields are intentionally absent.
+        # Validate each literal value against its declared type.
+        # We can't use .new (raises on missing required keys that are refs)
+        # and can't use .load (skips ALL validation).
+        # Instead: validate each field individually, then load the validated hash.
+        schema_keys = attributes_class.schema.each_with_object({}) do |k, h|
+          h[k.name] = k.type
+        end
+
+        literals.each do |key, value|
+          type = schema_keys[key]
+          next unless type # unknown keys already caught by ResourceBuilder
+
+          begin
+            type.call(value)
+          rescue Dry::Types::ConstraintError, Dry::Types::CoercionError => e
+            raise e.class, "#{attributes_class}: attribute :#{key} — #{e.message}"
+          end
+        end
+
+        # .load bypasses missing-key enforcement (refs are intentionally absent)
+        # but we've validated every literal value above.
         validated = attributes_class.load(literals)
         new(validated, refs.freeze)
       end
