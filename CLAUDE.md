@@ -117,6 +117,71 @@ Every typed resource function follows this contract:
    self.extend(Pangea::Resources::AWS) unless respond_to?(:aws_vpc)
    ```
 
+### ResourceInput — Serialization Boundary
+
+ResourceInput partitions user-provided attributes into validated literals
+and opaque Terraform references. Types stay PURE — they model the domain.
+Refs handled at the serialization boundary, not in type definitions.
+
+```ruby
+input = ResourceInput.partition(VpcAttributes, {
+  cidr: "10.0.0.0/16",              # Literal — validated by Dry::Struct
+  vpc_id: "${aws_vpc.other.id}",     # Ref — frozen, passed through
+})
+input[:cidr]   # => "10.0.0.0/16"   (validated)
+input[:vpc_id] # => "${aws_vpc.other.id}" (opaque)
+```
+
+Key invariants (proven by 24 RSpec tests):
+- Literal values validated strictly per-field against Dry::Types constraints
+- Only `\A\$\{.+\}\z` strings bypass validation (not partial matches)
+- Required attributes must be in EITHER literals or refs (not missing from both)
+- ResourceInput is frozen after creation (immutable)
+- `[]` accessor resolves refs over literals
+- `.load` used for Dry::Struct construction (bypasses missing-key for ref fields)
+
+Equivalent to Rust's serde boundary: type is strict, serialization handles wire format.
+
+### Pangea::Secrets — Unified Secret Resolution
+
+Three-tier resolution chain (first match wins):
+1. Environment variable (CI override)
+2. sops-nix pre-decrypted file (~/.config/sops-nix/secrets/)
+3. SOPS CLI extraction (fallback)
+
+```ruby
+Pangea::Secrets.configure(sops_file: '/path/to/secrets.yaml')
+api_key = Pangea::Secrets.resolve('porkbun/api-key')
+# Tries: ENV['PORKBUN_API_KEY'] → sops-nix file → sops --decrypt
+```
+
+### Type Purity Discipline
+
+Generated types (from pangea-forge) are PURE:
+```ruby
+attribute :cidr_block, T::CidrBlock     # Strict — validated at synthesis
+attribute :nameservers, T::Array.of(T::String)  # No ref unions
+```
+
+Terraform references are handled by ResourceBuilder → ResourceInput,
+NOT by the type system. Types model the domain. The serialization
+boundary handles the wire format.
+
+**Hard rules:**
+- Never add `| T::Ref` to generated types
+- Never override BaseAttributes.new to intercept refs
+- ResourceInput.partition is the ONLY place refs are separated from literals
+
+### Library Types (T::Ref, T::RefOr)
+
+Available in `types/core.rb` for HAND-WRITTEN code that explicitly needs
+to model the ref domain. Auto-generated code does NOT use these.
+
+```ruby
+T::Ref                          # Constrained: /\A\$\{.+\}\z/
+T::RefOr(T::CidrBlock)         # CidrBlock | Ref (explicit sum type)
+```
+
 ---
 
 ### Template Pattern
