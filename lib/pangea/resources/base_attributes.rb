@@ -28,10 +28,10 @@ module Pangea
       # terraform references (they will be resolved at plan/apply time).
       TERRAFORM_REF_PATTERN = /\$\{.*\}/.freeze
 
-      # NOTE: No self.new override needed. Terraform reference handling is
-      # modeled at the TYPE level via T::RefOr(T::SomeType) — a proper
-      # algebraic sum type. Dry::Struct validates natively because RefOr
-      # accepts either a validated literal OR a ${...} Terraform ref.
+      # NOTE: No self.new override. Terraform references are handled at the
+      # SERIALIZATION BOUNDARY by ResourceInput, not in the type system.
+      # Types stay pure. ResourceBuilder partitions refs from literals
+      # before validation, merges them back during Terraform JSON emission.
 
       # Override in subclasses to use a different reference pattern
       # (e.g., Pulumi uses different interpolation syntax).

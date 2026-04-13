@@ -4,26 +4,16 @@ module Pangea
   module Resources
     # Declarative DSL for defining terraform resource methods.
     #
-    # Eliminates the validate→build→return boilerplate that every resource
-    # module repeats. Each attribute is classified as:
+    # Types are PURE — they model the domain (CIDRs, ports, arrays).
+    # Terraform references are handled at the serialization boundary
+    # via ResourceInput, not in the type definitions.
     #
+    # Each attribute is classified as:
     #   map:         always set on the resource block
     #   map_present: set only when non-nil
-    #   map_bool:    set only when non-nil (explicit boolean check — !val.nil?)
+    #   map_bool:    set only when non-nil (explicit boolean check)
     #   labels:      set when hash is non-empty (.any?)
     #   tags:        set when hash is non-empty (.any?)
-    #
-    # Usage:
-    #   module GoogleComputeNetwork
-    #     include Pangea::Resources::ResourceBuilder
-    #
-    #     define_resource :google_compute_network,
-    #       attributes_class: Google::Types::ComputeNetworkAttributes,
-    #       outputs: { id: :id, self_link: :self_link },
-    #       map: [:name],
-    #       map_present: [:project, :description, :routing_mode, :mtu],
-    #       map_bool: [:auto_create_subnetworks, :delete_default_routes_on_create]
-    #   end
     #
     module ResourceBuilder
       def self.included(base)
@@ -31,18 +21,6 @@ module Pangea
       end
 
       module ClassMethods
-        # Define a terraform resource method on this module.
-        #
-        # @param tf_type [Symbol]         Terraform resource type (e.g. :google_compute_network)
-        # @param attributes_class [Class]  Dry::Struct class for attribute validation
-        # @param outputs [Hash]            { friendly_name => terraform_attribute } — defaults to { id: :id }
-        # @param map [Array<Symbol>]       Attributes always set on the resource
-        # @param map_present [Array<Symbol>] Attributes set only when non-nil
-        # @param map_bool [Array<Symbol>]  Boolean attributes set only when non-nil (uses !val.nil?)
-        # @param labels [Symbol, nil]      Attribute name for labels hash (set when .any?)
-        # @param tags [Symbol, nil]        Attribute name for tags hash (set when .any?)
-        # @param custom_block [Proc]       Optional block receiving (resource_dsl, attrs) for complex resources
-        #
         def define_resource(tf_type, attributes_class:, outputs: { id: :id },
                             map: [], map_present: [], map_bool: [],
                             tags: nil, labels: nil, &custom_block)
@@ -50,10 +28,6 @@ module Pangea
           @_resource_definitions[tf_type] = _store_definition(attributes_class, outputs, map, map_present, map_bool, tags, labels)
 
           define_method(tf_type) do |name, attributes = {}|
-            # Separate Terraform meta-arguments from resource attributes.
-            # Meta-arguments (lifecycle, depends_on, count, for_each, provider,
-            # provisioner) are NOT resource attributes — they're Terraform
-            # block-level directives that go directly into the synthesizer.
             meta_args = {}
             resource_attrs = attributes
             if attributes.is_a?(Hash)
@@ -61,7 +35,7 @@ module Pangea
               meta_args = attributes.select { |k, _| meta_keys.include?(k.to_sym) }
               resource_attrs = attributes.reject { |k, _| meta_keys.include?(k.to_sym) }
 
-              # Detect unknown keys (typos, wrong attribute names)
+              # Unknown key detection runs on ALL keys (including ref-carrying ones)
               known = attributes_class.schema.map { |k| k.name }.to_set
               unknown = resource_attrs.keys.map(&:to_sym) - known.to_a
               unless unknown.empty?
@@ -71,28 +45,15 @@ module Pangea
                   "Typo? Check Terraform docs for the correct attribute name."
               end
             end
-            attrs = attributes_class.new(resource_attrs)
-            _synthesize_block(:resource, tf_type, name, attrs, map, map_present, map_bool, tags, labels, custom_block, meta_args)
-            _build_reference(tf_type.to_s, name, attrs, outputs)
+
+            # Partition into validated literals + opaque refs.
+            # Types stay pure. Refs handled at serialization boundary.
+            input = ResourceInput.partition(attributes_class, resource_attrs)
+            _synthesize_block(:resource, tf_type, name, input, map, map_present, map_bool, tags, labels, custom_block, meta_args)
+            _build_reference(tf_type.to_s, name, input, outputs)
           end
         end
 
-        # Define a terraform data source method on this module.
-        #
-        # Data sources are read-only lookups. The generated method calls `data()`
-        # instead of `resource()` and output references use the `data.` prefix:
-        #   ${data.akeyless_secret.my_secret.value}
-        #
-        # @param tf_type [Symbol]         Terraform data source type (e.g. :akeyless_secret)
-        # @param attributes_class [Class]  Dry::Struct class for attribute validation
-        # @param outputs [Hash]            { friendly_name => terraform_attribute } — defaults to { id: :id }
-        # @param map [Array<Symbol>]       Attributes always set on the data block
-        # @param map_present [Array<Symbol>] Attributes set only when non-nil
-        # @param map_bool [Array<Symbol>]  Boolean attributes set only when non-nil (uses !val.nil?)
-        # @param labels [Symbol, nil]      Attribute name for labels hash (set when .any?)
-        # @param tags [Symbol, nil]        Attribute name for tags hash (set when .any?)
-        # @param custom_block [Proc]       Optional block receiving (data_dsl, attrs) for complex data sources
-        #
         def define_data(tf_type, attributes_class:, outputs: { id: :id },
                         map: [], map_present: [], map_bool: [],
                         tags: nil, labels: nil, &custom_block)
@@ -101,7 +62,6 @@ module Pangea
           @_data_definitions[tf_type] = _store_definition(attributes_class, outputs, map, map_present, map_bool, tags, labels)
 
           define_method(method_name) do |name, attributes = {}|
-            # Detect unknown keys before Dry::Struct silently drops them
             if attributes.is_a?(Hash)
               known = attributes_class.schema.map { |k| k.name }.to_set
               unknown = attributes.keys.map(&:to_sym) - known.to_a
@@ -111,18 +71,16 @@ module Pangea
                   "Valid attributes: #{known.to_a.sort.inspect}."
               end
             end
-            attrs = attributes_class.new(attributes)
-            _synthesize_block(:data, tf_type, name, attrs, map, map_present, map_bool, tags, labels, custom_block)
-            _build_reference("data.#{tf_type}", name, attrs, outputs)
+            input = ResourceInput.partition(attributes_class, attributes)
+            _synthesize_block(:data, tf_type, name, input, map, map_present, map_bool, tags, labels, custom_block)
+            _build_reference("data.#{tf_type}", name, input, outputs)
           end
         end
 
-        # Introspect registered resource definitions.
         def resource_definitions
           @_resource_definitions || {}
         end
 
-        # Introspect registered data source definitions.
         def data_definitions
           @_data_definitions || {}
         end
@@ -137,25 +95,22 @@ module Pangea
 
       private
 
-      def _synthesize_block(block_type, tf_type, name, attrs, map, map_present, map_bool, tags, labels, custom_block, meta_args = {})
+      def _synthesize_block(block_type, tf_type, name, input, map, map_present, map_bool, tags, labels, custom_block, meta_args = {})
         send(block_type, tf_type, name) do
-          # Use attrs[attr] (hash-style access) instead of attrs.public_send(attr)
-          # to safely handle attribute names that shadow Ruby built-in methods
-          # (e.g., :type, :send, :hash, :id, :class, :method, :display, :freeze).
-          map.each { |attr| __send__(attr, attrs[attr]) }
-          map_present.each { |attr| val = attrs[attr]; __send__(attr, val) if val }
-          map_bool.each { |attr| val = attrs[attr]; __send__(attr, val) unless val.nil? }
+          # input[attr] resolves refs over validated attrs transparently
+          map.each { |attr| __send__(attr, input[attr]) }
+          map_present.each { |attr| val = input[attr]; __send__(attr, val) if val }
+          map_bool.each { |attr| val = input[attr]; __send__(attr, val) unless val.nil? }
           if tags
-            tag_val = attrs[tags]
-            __send__(tags, tag_val) if tag_val&.any?
+            tag_val = input[tags]
+            __send__(tags, tag_val) if tag_val&.respond_to?(:any?) && tag_val.any?
           end
           if labels
-            label_val = attrs[labels]
-            __send__(labels, label_val) if label_val&.any?
+            label_val = input[labels]
+            __send__(labels, label_val) if label_val&.respond_to?(:any?) && label_val.any?
           end
-          instance_exec(self, attrs, &custom_block) if custom_block
+          instance_exec(self, input, &custom_block) if custom_block
 
-          # Emit Terraform meta-arguments (lifecycle, depends_on, etc.)
           meta_args.each do |meta_key, meta_val|
             if meta_val.is_a?(Hash)
               __send__(meta_key) do
@@ -168,14 +123,14 @@ module Pangea
         end
       end
 
-      def _build_reference(type_str, name, attrs, outputs)
+      def _build_reference(type_str, name, input, outputs)
         output_hash = outputs.each_with_object({}) do |(friendly, tf_attr), h|
           h[friendly] = "${#{type_str}.#{name}.#{tf_attr}}"
         end
         ResourceReference.new(
           type: type_str,
           name: name,
-          resource_attributes: attrs.to_h,
+          resource_attributes: input.to_h,
           outputs: output_hash
         )
       end

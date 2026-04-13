@@ -82,6 +82,7 @@ require_relative 'pangea/resources/base'
 require_relative 'pangea/resources/base_attributes'
 require_relative 'pangea/resources/reference'
 require_relative 'pangea/resources/reference_generator'
+require_relative 'pangea/resources/resource_input'
 require_relative 'pangea/resources/resource_builder'
 require_relative 'pangea/resources/network_helpers'
 
