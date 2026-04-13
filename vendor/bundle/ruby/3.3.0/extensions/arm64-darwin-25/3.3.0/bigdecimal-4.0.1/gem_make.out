@@ -1,5 +1,5 @@
 current directory: /Users/luis.d/code/github/pleme-io/pangea-core/vendor/bundle/ruby/3.3.0/gems/bigdecimal-4.0.1/ext/bigdecimal
-/nix/store/k3pcvb2vsq9f4a9s6r62qbn63s11bip0-ruby-3.3.10/bin/ruby -I /nix/store/k3pcvb2vsq9f4a9s6r62qbn63s11bip0-ruby-3.3.10/lib/ruby/3.3.0 extconf.rb
+/nix/store/vrxd32mr9pykiwhi9a74657jcfl1i912-ruby-3.3.10/bin/ruby -I /nix/store/vrxd32mr9pykiwhi9a74657jcfl1i912-ruby-3.3.10/lib/ruby/3.3.0 extconf.rb
 checking for __builtin_clz()... yes
 checking for __builtin_clzl()... yes
 checking for __builtin_clzll()... yes
@@ -20,14 +20,14 @@ checking for RB_WARN_CATEGORY_DEPRECATED in ruby.h... yes
 creating Makefile
 
 current directory: /Users/luis.d/code/github/pleme-io/pangea-core/vendor/bundle/ruby/3.3.0/gems/bigdecimal-4.0.1/ext/bigdecimal
-make DESTDIR\= sitearchdir\=./.gem.20260320-44817-a7ezc7 sitelibdir\=./.gem.20260320-44817-a7ezc7 clean
+make DESTDIR\= sitearchdir\=./.gem.20260413-39623-pnhufp sitelibdir\=./.gem.20260413-39623-pnhufp clean
 
 current directory: /Users/luis.d/code/github/pleme-io/pangea-core/vendor/bundle/ruby/3.3.0/gems/bigdecimal-4.0.1/ext/bigdecimal
-make DESTDIR\= sitearchdir\=./.gem.20260320-44817-a7ezc7 sitelibdir\=./.gem.20260320-44817-a7ezc7
+make DESTDIR\= sitearchdir\=./.gem.20260413-39623-pnhufp sitelibdir\=./.gem.20260413-39623-pnhufp
 compiling bigdecimal.c
 compiling missing.c
 linking shared-object bigdecimal.bundle
 
 current directory: /Users/luis.d/code/github/pleme-io/pangea-core/vendor/bundle/ruby/3.3.0/gems/bigdecimal-4.0.1/ext/bigdecimal
-make DESTDIR\= sitearchdir\=./.gem.20260320-44817-a7ezc7 sitelibdir\=./.gem.20260320-44817-a7ezc7 install
-install -c -p -m 755 bigdecimal.bundle ./.gem.20260320-44817-a7ezc7
+make DESTDIR\= sitearchdir\=./.gem.20260413-39623-pnhufp sitelibdir\=./.gem.20260413-39623-pnhufp install
+install -c -p -m 755 bigdecimal.bundle ./.gem.20260413-39623-pnhufp

@@ -28,38 +28,10 @@ module Pangea
       # terraform references (they will be resolved at plan/apply time).
       TERRAFORM_REF_PATTERN = /\$\{.*\}/.freeze
 
-      # Override new to handle Terraform interpolation references on
-      # complex-typed attributes (Array, Hash). When a Terraform ref string
-      # like "${aws_route53_zone.x.name_servers}" is passed where an Array
-      # is expected, Dry::Struct's schema resolver rejects it before we can
-      # intercept. This override wraps ref strings in an Array so they pass
-      # type validation — Terraform resolves them at plan/apply time.
-      #
-      # This is the systemic equivalent of Rust's newtype pattern with
-      # From<T> impl: the type boundary enforces invariants for literal
-      # values while transparently converting known-valid reference forms.
-      def self.new(attributes = {})
-        return super if attributes.is_a?(self)
-
-        hash = attributes.is_a?(Hash) ? attributes.dup : attributes.to_h.dup
-        hash.transform_keys!(&:to_sym)
-
-        # For each attribute, if the schema expects Array/Hash but the value
-        # is a Terraform ref string, wrap it so Dry::Types doesn't reject it.
-        schema.each do |key|
-          attr_name = key.name
-          value = hash[attr_name]
-          next unless value.is_a?(String) && value.match?(TERRAFORM_REF_PATTERN)
-
-          # Check if the declared type expects an Array or Hash
-          type_str = key.type.to_s
-          if type_str.include?('Array') || type_str.include?('Hash')
-            hash[attr_name] = [value]
-          end
-        end
-
-        super(hash)
-      end
+      # NOTE: No self.new override needed. Terraform reference handling is
+      # modeled at the TYPE level via T::RefOr(T::SomeType) — a proper
+      # algebraic sum type. Dry::Struct validates natively because RefOr
+      # accepts either a validated literal OR a ${...} Terraform ref.
 
       # Override in subclasses to use a different reference pattern
       # (e.g., Pulumi uses different interpolation syntax).

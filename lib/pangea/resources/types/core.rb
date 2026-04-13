@@ -79,6 +79,29 @@ module Pangea
       # Unix User/Group IDs
       UnixUserId = Integer.constrained(gteq: 0, lteq: 4294967295)
       UnixGroupId = Integer.constrained(gteq: 0, lteq: 4294967295)
+
+      # ── Terraform Reference Types (Algebraic Sum Types) ────────────
+
+      # Terraform interpolation reference — opaque string resolved at plan time.
+      # Strict constraint: must match ${...} syntax exactly. Random strings rejected.
+      # Equivalent to Rust: struct TerraformRef(String);
+      Ref = String.constrained(format: /\A\$\{.+\}\z/)
+
+      # Sum type builder: literal T | Terraform reference.
+      # Produces a discriminated union that accepts EITHER a validated literal
+      # value OR a Terraform interpolation reference. Nothing else.
+      #
+      # Equivalent to Rust: enum TfValue<T> { Literal(T), Ref(String) }
+      #
+      # Usage:
+      #   T::RefOr(T::CidrBlock)           → CidrBlock | Ref
+      #   T::RefOr(T::Array.of(T::String)) → Array<String> | Ref
+      #   T::RefOr(T::Port)                → Port | Ref
+      #   T::RefOr(T::Bool)                → Bool | Ref
+      #
+      def self.RefOr(type)
+        type | Ref
+      end
     end
   end
 end
