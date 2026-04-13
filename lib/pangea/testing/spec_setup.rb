@@ -35,6 +35,10 @@ module Pangea
           end
         end
 
+        # Load shared examples (type purity, resource patterns)
+        require_relative 'type_purity'
+        require_relative 'resource_examples'
+
         RSpec.configure do |config|
           config.example_status_persistence_file_path = '.rspec_status'
           config.disable_monkey_patching!
