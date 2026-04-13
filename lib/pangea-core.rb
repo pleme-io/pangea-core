@@ -102,3 +102,6 @@ require_relative 'pangea/outputs'
 
 # Remote state — cross-template output references via direct S3 reads
 require_relative 'pangea/remote_state'
+
+# Secrets — unified secret resolution (env → sops-nix → SOPS CLI)
+require_relative 'pangea/secrets'
