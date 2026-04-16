@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'json'
+require_relative 'theme'
 
 module Pangea
   class CLI
@@ -16,8 +17,8 @@ module Pangea
     #   diagnostic.summary, not by string regex over arbitrary output.
     # - Classify errors as transient (eventual consistency, throttling,
     #   service unavailable) vs permanent, by inspecting diagnostic.detail.
-    # - Render a clean, consistent human summary across plan / apply /
-    #   destroy without provider-specific noise.
+    # - Render a clean, Nord-themed human summary across plan / apply /
+    #   destroy with per-resource change glyphs and elapsed timings.
     # - Feed the event stream into higher-level orchestration (audit logs,
     #   retry decisions, telemetry) as a typed data structure.
     #
@@ -42,17 +43,6 @@ module Pangea
         /inline_policy is deprecated/,
         /Argument is deprecated/,
       ].freeze
-
-      # ACTION_SYMBOLS maps OpenTofu `change.action` to a terse glyph.
-      ACTION_SYMBOLS = {
-        'create'   => '+',
-        'update'   => '~',
-        'delete'   => '-',
-        'replace'  => '±',
-        'read'     => '>',
-        'no-op'    => '=',
-        'import'   => '→',
-      }.freeze
 
       # One parsed event from the NDJSON stream.
       class Event
@@ -130,16 +120,25 @@ module Pangea
 
         def any_transient_errors? = !@transient_errors.empty?
 
+        # Nord-themed one-line summary. Zero counts are muted, non-zero
+        # counts use semantic colors (create=green, change=cyan, destroy=red).
         def summary_line
+          t = Theme
           if @apply_summary
             a, c, r = @apply_summary.values_at('add', 'change', 'remove').map(&:to_i)
-            "Apply: #{a} added, #{c} changed, #{r} destroyed"
+            "#{t.bold(t.color(:heading, 'Apply:'))} " \
+              "#{t.color(:create, a)} added, " \
+              "#{t.color(:update, c)} changed, " \
+              "#{t.color(:delete, r)} destroyed"
           elsif @plan_summary
             a, c, r = @plan_summary.values_at('add', 'change', 'remove').map(&:to_i)
             if (a + c + r).zero?
-              'Plan: No changes.'
+              t.bold(t.color(:heading, 'Plan: No changes.'))
             else
-              "Plan: #{a} to add, #{c} to change, #{r} to destroy"
+              "#{t.bold(t.color(:heading, 'Plan:'))} " \
+                "#{t.color(:create, a)} to add, " \
+                "#{t.color(:update, c)} to change, " \
+                "#{t.color(:delete, r)} to destroy"
             end
           end
         end
@@ -149,34 +148,52 @@ module Pangea
 
       # Render a single event as a one-line human-readable string, or nil
       # if the event is not user-facing (dropped warnings, internal logs).
-      # Callers typically do: `io.puts(render_human(event)) if render_human(event)`.
+      # Output is Nord-themed via Pangea::CLI::Theme.
       def render_human(event)
         return nil if event.dropped_warning?
 
         case event.type
-        when 'version', 'log', 'change_summary'
+        when 'version', 'log', 'change_summary',
+             'refresh_start', 'refresh_complete', 'apply_progress',
+             'outputs'
+          # Omitted from output. `outputs` (the type event, not state
+          # outputs) is redundant with the change_summary.
           nil
         when 'planned_change'
           action = event.change&.dig('action')
           addr = event.resource_address
           return nil unless action && addr
-          "  #{ACTION_SYMBOLS.fetch(action, '?')} #{addr}"
+          "  #{Theme.action_glyph(action)} #{Theme.color(:resource, addr)}"
         when 'apply_start'
           addr = event.resource_address
-          addr ? "  ➜ #{addr}" : nil
+          addr ? "  #{Theme.progress_glyph} #{Theme.color(:resource, addr)}" : nil
         when 'apply_complete'
           addr = event.resource_address
-          addr ? "  ✔ #{addr}" : nil
+          addr ? "  #{Theme.success_glyph} #{Theme.color(:resource, addr)}" : nil
         when 'apply_errored'
           addr = event.resource_address
           err = event.hook&.dig('error')
-          "  ✗ #{addr}#{err ? ": #{err}" : ''}"
+          body = err ? "#{Theme.color(:resource, addr)}: #{Theme.color(:error, err)}" \
+                     : Theme.color(:resource, addr.to_s)
+          "  #{Theme.error_glyph} #{body}"
         when 'diagnostic'
           d = event.diagnostic
           return nil if d.nil?
-          sev = d['severity'].to_s.upcase
-          lines = ["[#{sev}] #{d['summary']}"]
-          lines << "  #{d['detail']}" if d['detail'] && !d['detail'].empty?
+          severity = d['severity'].to_s
+          role = case severity
+                 when 'error'   then :error
+                 when 'warning' then :warning
+                 else :info
+                 end
+          prefix = Theme.color(role, "[#{severity.upcase}]")
+          lines = ["#{prefix} #{Theme.color(:resource, d['summary'])}"]
+          detail = d['detail'].to_s
+          unless detail.empty?
+            # Indent the detail with a subtle left-bar for visual grouping.
+            detail.lines.each do |dl|
+              lines << "  #{Theme.color(:divider, '│')} #{Theme.color(role, dl.chomp)}"
+            end
+          end
           lines.join("\n")
         else
           event.message if event.level != 'info'
