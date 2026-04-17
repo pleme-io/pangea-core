@@ -404,4 +404,187 @@ RSpec.describe Pangea::CLI::Cascade do
     # destroy/deploy). The run_actions skip is belt-and-suspenders only;
     # no separate test needed here.
   end
+
+  describe 'platform scope filter' do
+    # Builds the full pangea-architectures shape: platforms/ alongside
+    # workspaces/. PLATFORM=<name> env points at the platform yaml that
+    # declares which layers are in-scope for this platform.
+    def build_scoped_constellation(platform_name:, layers:, decls:)
+      root = Dir.mktmpdir('scoped_')
+      workspaces = File.join(root, 'workspaces')
+      platforms = File.join(root, 'platforms')
+      FileUtils.mkdir_p(workspaces)
+      FileUtils.mkdir_p(platforms)
+
+      paths = {}
+      decls.each do |name, asks|
+        dir = File.join(workspaces, name)
+        FileUtils.mkdir_p(dir)
+        paths[name] = dir
+        yml = { 'workspace' => name, 'kind' => name.sub(/^platform-/, '') }
+        yml['reactivity'] = { 'asks' => asks } unless asks.empty?
+        File.write(File.join(dir, 'pangea.yml'), yml.to_yaml)
+        File.write(File.join(dir, "#{name.tr('-', '_')}.rb"), "# #{name}\n")
+      end
+
+      File.write(
+        File.join(platforms, "#{platform_name}.yaml"),
+        { 'name' => platform_name, 'layers' => layers }.to_yaml,
+      )
+
+      [root, workspaces, paths]
+    end
+
+    around do |ex|
+      original = ENV['PLATFORM']
+      ex.run
+    ensure
+      if original.nil?
+        ENV.delete('PLATFORM')
+      else
+        ENV['PLATFORM'] = original
+      end
+    end
+
+    after { FileUtils.rm_rf(@root) if @root }
+
+    it 'keeps only workspaces named in platform.layers (prefixed platform-<layer>)' do
+      @root, _workspaces, paths = build_scoped_constellation(
+        platform_name: 'quero',
+        layers: %w[iam vpc dns cache],
+        decls: {
+          'platform-iam' => [],
+          'platform-vpc' => [],
+          'platform-dns' => [
+            { 'layer' => 'vpc', 'workspace' => 'platform-vpc', 'output' => 'vpc_id', 'bind' => 'vpc_id' },
+          ],
+          'platform-cache' => [
+            { 'layer' => 'vpc', 'workspace' => 'platform-vpc', 'output' => 'vpc_id', 'bind' => 'vpc_id' },
+            { 'layer' => 'dns', 'workspace' => 'platform-dns', 'output' => 'zone_id', 'bind' => 'zone_id' },
+          ],
+          'platform-packer' => [
+            { 'layer' => 'cache', 'workspace' => 'platform-cache', 'output' => 'cache_endpoint', 'bind' => 'cache_endpoint' },
+          ],
+          'platform-builder-fleet' => [
+            { 'layer' => 'cache', 'workspace' => 'platform-cache', 'output' => 'cache_endpoint', 'bind' => 'cache_endpoint' },
+          ],
+        },
+      )
+      ENV['PLATFORM'] = 'quero'
+
+      cascade = described_class.for_template(
+        File.join(paths['platform-cache'], 'platform_cache.rb'),
+      )
+      # Reachable via cascade: vpc, dns, cache, packer, builder-fleet.
+      # Platform scope keeps only [iam, vpc, dns, cache] → packer and
+      # builder-fleet are excluded.
+      expect(cascade.ordered_names).to contain_exactly(
+        'platform-vpc', 'platform-dns', 'platform-cache'
+      )
+    end
+
+    it 'returns nil when the platform filter collapses the cascade to just the seed' do
+      @root, _, paths = build_scoped_constellation(
+        platform_name: 'tiny',
+        layers: %w[cache],
+        decls: {
+          'platform-vpc' => [],
+          'platform-cache' => [
+            { 'layer' => 'vpc', 'workspace' => 'platform-vpc', 'output' => 'vpc_id', 'bind' => 'vpc_id' },
+          ],
+        },
+      )
+      ENV['PLATFORM'] = 'tiny'
+      # Neighbors (vpc) excluded by platform scope → only cache remains → nil.
+      expect(described_class.for_template(
+        File.join(paths['platform-cache'], 'platform_cache.rb'),
+      )).to be_nil
+    end
+
+    it 'is a no-op when PLATFORM env var is unset (full closure runs)' do
+      @root, _, paths = build_scoped_constellation(
+        platform_name: 'quero',
+        layers: %w[vpc],
+        decls: {
+          'platform-vpc' => [],
+          'platform-dns' => [
+            { 'layer' => 'vpc', 'workspace' => 'platform-vpc', 'output' => 'vpc_id', 'bind' => 'vpc_id' },
+          ],
+          'platform-cache' => [
+            { 'layer' => 'dns', 'workspace' => 'platform-dns', 'output' => 'zone_id', 'bind' => 'zone_id' },
+          ],
+        },
+      )
+      ENV.delete('PLATFORM')
+      cascade = described_class.for_template(
+        File.join(paths['platform-cache'], 'platform_cache.rb'),
+      )
+      # No filter → full closure reachable from cache.
+      expect(cascade.ordered_names).to contain_exactly(
+        'platform-vpc', 'platform-dns', 'platform-cache'
+      )
+    end
+
+    it 'is a no-op when platform.yaml is missing' do
+      @root, workspaces, paths = build_scoped_constellation(
+        platform_name: 'bogus',
+        layers: %w[cache],
+        decls: {
+          'platform-vpc' => [],
+          'platform-cache' => [
+            { 'layer' => 'vpc', 'workspace' => 'platform-vpc', 'output' => 'vpc_id', 'bind' => 'vpc_id' },
+          ],
+        },
+      )
+      FileUtils.rm_f(File.join(@root, 'platforms', 'bogus.yaml'))
+      ENV['PLATFORM'] = 'bogus'
+      cascade = described_class.for_template(
+        File.join(paths['platform-cache'], 'platform_cache.rb'),
+      )
+      # Missing yaml → no filter → full closure.
+      expect(cascade.ordered_names).to contain_exactly(
+        'platform-vpc', 'platform-cache'
+      )
+    end
+
+    it 'is a no-op when platform.yaml declares no layers' do
+      @root, _, paths = build_scoped_constellation(
+        platform_name: 'empty',
+        layers: [],
+        decls: {
+          'platform-vpc' => [],
+          'platform-cache' => [
+            { 'layer' => 'vpc', 'workspace' => 'platform-vpc', 'output' => 'vpc_id', 'bind' => 'vpc_id' },
+          ],
+        },
+      )
+      ENV['PLATFORM'] = 'empty'
+      cascade = described_class.for_template(
+        File.join(paths['platform-cache'], 'platform_cache.rb'),
+      )
+      # Empty layers → no filter.
+      expect(cascade.ordered_names).to contain_exactly(
+        'platform-vpc', 'platform-cache'
+      )
+    end
+
+    it 'always keeps the seed even if the platform does not declare it' do
+      @root, _, paths = build_scoped_constellation(
+        platform_name: 'quirky',
+        layers: %w[vpc],  # note: no 'cache'
+        decls: {
+          'platform-vpc' => [],
+          'platform-cache' => [
+            { 'layer' => 'vpc', 'workspace' => 'platform-vpc', 'output' => 'vpc_id', 'bind' => 'vpc_id' },
+          ],
+        },
+      )
+      ENV['PLATFORM'] = 'quirky'
+      cascade = described_class.for_template(
+        File.join(paths['platform-cache'], 'platform_cache.rb'),
+      )
+      expect(cascade.ordered_names).to include('platform-cache')
+      expect(cascade.ordered_names).to include('platform-vpc')
+    end
+  end
 end

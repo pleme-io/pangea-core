@@ -31,14 +31,22 @@ module Pangea
       # nil if:
       #  - cascade is disabled (PANGEA_NO_CASCADE=1)
       #  - the template is not in a scannable constellation
-      #  - the resolved cascade has only the seed itself (depth 0, or no
-      #    reactive neighbors in range)
+      #  - the resolved cascade has only the seed itself (depth 0, no
+      #    reactive neighbors in range, or platform scope filters everyone
+      #    but the seed)
       #
       # Depth resolution (first match wins):
       #  1. explicit `max_depth:` argument (CLI --depth N)
       #  2. ENV['PANGEA_CASCADE_DEPTH']
       #  3. workspace or root pangea.yml `cascade.default_depth`
       #  4. nil (unlimited — the full transitive closure)
+      #
+      # Platform scope: when ENV['PLATFORM'] is set AND
+      # `{constellation_root}/platforms/{platform}.yaml` declares a
+      # `layers:` list, the cascade is intersected with that list so
+      # that workspaces the platform does not use are skipped. The seed
+      # is always included. Absent platform / file / layers key → no
+      # filter (full closure).
       def self.for_template(template_file, max_depth: nil)
         return nil unless enabled?
 
@@ -58,6 +66,11 @@ module Pangea
         )
 
         cascade_names = graph.cascade_set(seed_name, max_depth: depth)
+        cascade_names = filter_by_platform_scope(
+          cascade_names,
+          workspaces_root: workspaces_root,
+          seed_name: seed_name,
+        )
         return nil if cascade_names.size <= 1
 
         ordered = graph.topo_sort(cascade_names)
@@ -68,6 +81,29 @@ module Pangea
           seed_template_file: File.expand_path(template_file),
           max_depth: depth,
         )
+      end
+
+      # Intersect the cascade with the set of workspaces the current
+      # platform actually uses. Keeps the seed even if the platform
+      # doesn't declare it (defensive — the user explicitly asked to
+      # plan/apply that workspace).
+      def self.filter_by_platform_scope(names, workspaces_root:, seed_name:)
+        platform_name = ENV['PLATFORM']
+        return names if platform_name.nil? || platform_name.empty?
+
+        platforms_dir = File.expand_path('../platforms', workspaces_root)
+        yml_path = File.join(platforms_dir, "#{platform_name}.yaml")
+        return names unless File.exist?(yml_path)
+
+        platform = YAML.safe_load(File.read(yml_path)) || {}
+        layers = Array(platform['layers']).map(&:to_s)
+        return names if layers.empty?
+
+        allowed = layers.map { |layer| "platform-#{layer}" }.to_set
+        allowed << seed_name
+        Set.new(names.select { |n| allowed.include?(n) })
+      rescue StandardError
+        names
       end
 
       # Resolve the depth cap from CLI arg → env → workspace yml → root yml.
