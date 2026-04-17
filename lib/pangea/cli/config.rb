@@ -54,8 +54,16 @@ module Pangea
       def resolve_backend_config
         # Load root config first, then workspace — workspace wins on conflicts.
         # Use deep_merge so nested keys (namespaces, state) compose correctly.
-        root_config = load_pangea_yml(Dir.pwd) || {}
-        ws_config = Dir.pwd == @template_dir ? {} : (load_pangea_yml(@template_dir) || {})
+        # Root is discovered by walking up from the TEMPLATE directory (not
+        # pwd) until a directory with pangea.yml that declares state.s3.*
+        # defaults is found. This is the same boundary logic WorkspaceConfig
+        # uses — the two must agree for backend merging to work. Previously
+        # this used Dir.pwd, which silently loaded the workspace's own
+        # pangea.yml as "root" when pangea was run from within the workspace,
+        # dropping the bucket/region defaults on the floor.
+        root_dir = find_root_pangea_dir(@template_dir)
+        root_config = root_dir ? (load_pangea_yml(root_dir) || {}) : {}
+        ws_config = load_pangea_yml(@template_dir) || {}
         merged = deep_merge(root_config, ws_config)
 
         ns_config = merged.dig('namespaces', @namespace)
@@ -86,6 +94,27 @@ module Pangea
       def find_pangea_yml(dir)
         path = File.join(dir, 'pangea.yml')
         File.exist?(path) ? path : nil
+      end
+
+      # Walk up from `start_dir` looking for a pangea.yml that declares
+      # top-level `state.s3.*` defaults (the marker of the "true" root).
+      # Returns nil if no such file is found before reaching the filesystem
+      # root.
+      def find_root_pangea_dir(start_dir)
+        dir = File.expand_path(start_dir)
+        loop do
+          yml = find_pangea_yml(dir)
+          if yml
+            config = YAML.safe_load(File.read(yml)) rescue {}
+            # A root pangea.yml declares state.s3.* defaults; workspace-
+            # level pangea.yml files declare namespaces[].state.{type,key}
+            # but no top-level state.s3 block.
+            return dir if config.is_a?(Hash) && config.dig('state', 's3').is_a?(Hash)
+          end
+          parent = File.dirname(dir)
+          return nil if parent == dir
+          dir = parent
+        end
       end
 
       def load_pangea_yml(dir)
