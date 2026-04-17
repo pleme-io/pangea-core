@@ -211,11 +211,13 @@ RSpec.describe Pangea::Resources::ResourceBuilder do
         .to raise_error(ArgumentError)
     end
 
-    it 'raises Dry::Struct::Error for missing required attributes (after unknown-key check passes)' do
+    it 'raises ArgumentError for missing required attributes (after unknown-key check passes)' do
       synth.extend(TestSimpleResource)
-      # Empty hash has no unknown keys but is missing required :name
+      # Empty hash has no unknown keys but is missing required :name.
+      # ResourceInput.partition catches this structurally before
+      # Dry::Struct.load runs and names every missing field.
       expect { synth.test_simple(:test, {}) }
-        .to raise_error(Dry::Struct::Error)
+        .to raise_error(ArgumentError, /missing required attributes.*:name/)
     end
   end
 

@@ -56,8 +56,12 @@ module Pangea
 
         # Validate that every required attribute is accounted for
         # (present in either literals or refs, not missing from both).
+        # Keys with a `.default(...)` type are NOT user-required — Dry::Struct
+        # fills them in on `.load` when omitted. `Schema::Key#required?`
+        # reports `true` for every attribute regardless of default, so we
+        # additionally filter by `k.type.default?`.
         required_keys = attributes_class.schema
-          .select { |k| k.required? }
+          .select { |k| k.required? && !k.type.default? }
           .map(&:name)
           .to_set
 
@@ -118,6 +122,27 @@ module Pangea
       # @return [Hash]
       def to_h
         validated.to_h.merge(refs)
+      end
+
+      # Template-author DSL: `input.priority` resolves like `input[:priority]`.
+      # Refs win over validated literals (same as `[]`). Unknown attribute
+      # names fall through to `super` → NoMethodError with full message.
+      def method_missing(name, *args)
+        if args.empty? && attribute?(name)
+          self[name]
+        else
+          super
+        end
+      end
+
+      def respond_to_missing?(name, include_private = false)
+        attribute?(name) || super
+      end
+
+      private
+
+      def attribute?(name)
+        refs.key?(name) || validated.respond_to?(name)
       end
     end
   end
