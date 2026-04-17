@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'json'
+require_relative 'synthesizer'
 require_relative 'theme'
 require_relative 'tofu_events'
 

@@ -3,6 +3,7 @@
 require_relative 'cli/config'
 require_relative 'cli/synthesizer'
 require_relative 'cli/operations'
+require_relative 'cli/cascade'
 
 module Pangea
   # CLI for the Pangea IaC DSL.
@@ -53,6 +54,22 @@ module Pangea
       private
 
       def run_single(operation, template_file, namespace)
+        # plan / apply / destroy on a template that participates in
+        # reactive relationships cascades across the constellation in
+        # dependency order. Other operations (synth/output/init) stay
+        # single-workspace — they don't materially change infra state.
+        cascade_ops = %w[plan apply destroy]
+        if cascade_ops.include?(operation)
+          cascade = Cascade.for_template(template_file)
+          if cascade
+            case operation
+            when 'plan'    then return cascade.plan(namespace: namespace)
+            when 'apply'   then return cascade.apply(namespace: namespace)
+            when 'destroy' then return cascade.destroy(namespace: namespace)
+            end
+          end
+        end
+
         config = Config.new(template_file, namespace: namespace)
         ops = Operations.new(config)
 
