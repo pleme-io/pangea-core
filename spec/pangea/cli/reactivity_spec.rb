@@ -249,5 +249,89 @@ RSpec.describe Pangea::CLI::Reactivity do
         expect(described_class.workspaces_root_for(template)).to be_nil
       end
     end
+
+    describe 'cascade_set with max_depth' do
+      it 'depth 0 returns just the seed' do
+        @root, _ = constellation
+        g = described_class.scan(@root)
+        expect(g.cascade_set('platform-vpc', max_depth: 0)).to contain_exactly('platform-vpc')
+      end
+
+      it 'depth 1 returns seed + direct neighbors only' do
+        @root, _ = constellation
+        g = described_class.scan(@root)
+        # platform-dns asks VPC; platform-cache asks VPC too.
+        # Direct neighbors of VPC: dns, cache, packer, builder-fleet.
+        set = g.cascade_set('platform-vpc', max_depth: 1)
+        expect(set).to contain_exactly(
+          'platform-vpc', 'platform-dns', 'platform-cache',
+          'platform-packer', 'platform-builder-fleet'
+        )
+        # iam is only reachable via packer → 2 hops. Excluded at depth 1.
+        expect(set).not_to include('platform-iam')
+      end
+
+      it 'unlimited depth (nil) matches original behavior' do
+        @root, _ = constellation
+        g = described_class.scan(@root)
+        unlimited = g.cascade_set('platform-vpc', max_depth: nil)
+        unbounded = g.cascade_set('platform-vpc')
+        expect(unlimited).to eq(unbounded)
+      end
+
+      it 'depth 2 from dns reaches neighbors-of-neighbors but not farther' do
+        @root, _ = constellation
+        g = described_class.scan(@root)
+        set = g.cascade_set('platform-dns', max_depth: 2)
+        # 1 hop: vpc, cache, builder-fleet. 2 hops: packer (via cache).
+        # 3 hops would pick up iam (packer asks iam) — excluded at depth 2.
+        expect(set).to include(
+          'platform-dns', 'platform-vpc', 'platform-cache',
+          'platform-builder-fleet', 'platform-packer'
+        )
+        expect(set).not_to include('platform-iam')
+      end
+    end
+  end
+
+  describe 'cascade.{pre,post}_actions in pangea.yml' do
+    it 'loads declared pre_actions and post_actions' do
+      Dir.mktmpdir do |dir|
+        yml = {
+          'workspace' => 'ws',
+          'cascade' => { 'pre_actions' => %w[synth init], 'post_actions' => %w[output] },
+        }
+        File.write(File.join(dir, 'pangea.yml'), yml.to_yaml)
+        ws = described_class::Workspace.load(dir)
+        expect(ws.pre_actions).to eq(%w[synth init])
+        expect(ws.post_actions).to eq(%w[output])
+      end
+    end
+
+    it 'raises InvalidActionError when pre_action names a conflicting command' do
+      Dir.mktmpdir do |dir|
+        yml = {
+          'workspace' => 'ws',
+          'cascade' => { 'pre_actions' => %w[plan] },
+        }
+        File.write(File.join(dir, 'pangea.yml'), yml.to_yaml)
+        expect { described_class::Workspace.load(dir) }.to raise_error(
+          described_class::InvalidActionError, /conflicts with the primary command/
+        )
+      end
+    end
+
+    it 'raises InvalidActionError when action is not on the allowlist' do
+      Dir.mktmpdir do |dir|
+        yml = {
+          'workspace' => 'ws',
+          'cascade' => { 'post_actions' => %w[refresh] },
+        }
+        File.write(File.join(dir, 'pangea.yml'), yml.to_yaml)
+        expect { described_class::Workspace.load(dir) }.to raise_error(
+          described_class::InvalidActionError, /unknown cascade action/
+        )
+      end
+    end
   end
 end

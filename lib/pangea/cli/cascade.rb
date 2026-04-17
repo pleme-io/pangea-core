@@ -21,16 +21,25 @@ module Pangea
     # single-workspace behavior even when a cascade would otherwise fire.
     class Cascade
       attr_reader :graph, :ordered_names, :seed_name, :seed_template_file,
-                  :outcomes
+                  :outcomes, :max_depth
 
       def self.enabled?
         ENV['PANGEA_NO_CASCADE'] != '1'
       end
 
       # Build a cascade plan from a user-provided template file path. Returns
-      # nil if the template is not in a scannable constellation OR if the
-      # only reachable workspace is the seed itself (no cascade needed).
-      def self.for_template(template_file)
+      # nil if:
+      #  - cascade is disabled (PANGEA_NO_CASCADE=1)
+      #  - the template is not in a scannable constellation
+      #  - the resolved cascade has only the seed itself (depth 0, or no
+      #    reactive neighbors in range)
+      #
+      # Depth resolution (first match wins):
+      #  1. explicit `max_depth:` argument (CLI --depth N)
+      #  2. ENV['PANGEA_CASCADE_DEPTH']
+      #  3. workspace or root pangea.yml `cascade.default_depth`
+      #  4. nil (unlimited — the full transitive closure)
+      def self.for_template(template_file, max_depth: nil)
         return nil unless enabled?
 
         workspaces_root = Reactivity::Graph.workspaces_root_for(template_file)
@@ -42,7 +51,13 @@ module Pangea
 
         return nil unless graph.include?(seed_name)
 
-        cascade_names = graph.cascade_set(seed_name)
+        depth = resolve_depth(
+          explicit: max_depth,
+          seed_dir: seed_dir,
+          workspaces_root: workspaces_root,
+        )
+
+        cascade_names = graph.cascade_set(seed_name, max_depth: depth)
         return nil if cascade_names.size <= 1
 
         ordered = graph.topo_sort(cascade_names)
@@ -51,14 +66,49 @@ module Pangea
           ordered_names: ordered,
           seed_name: seed_name,
           seed_template_file: File.expand_path(template_file),
+          max_depth: depth,
         )
       end
 
-      def initialize(graph:, ordered_names:, seed_name:, seed_template_file:)
+      # Resolve the depth cap from CLI arg → env → workspace yml → root yml.
+      # Returns nil for unlimited. A non-numeric / negative value falls
+      # through to the next source.
+      def self.resolve_depth(explicit:, seed_dir:, workspaces_root:)
+        candidates = [
+          explicit,
+          parse_int(ENV['PANGEA_CASCADE_DEPTH']),
+          yaml_depth(File.join(seed_dir, 'pangea.yml')),
+          yaml_depth(File.join(File.dirname(workspaces_root), 'pangea.yml')),
+        ]
+        candidates.find { |d| !d.nil? }
+      end
+
+      def self.parse_int(value)
+        return nil if value.nil?
+        return value.negative? ? nil : value if value.is_a?(Integer)
+        return nil if value.to_s.strip.empty?
+
+        i = Integer(value.to_s, 10)
+        i.negative? ? nil : i
+      rescue ArgumentError, TypeError
+        nil
+      end
+
+      def self.yaml_depth(path)
+        return nil unless File.exist?(path)
+
+        config = YAML.safe_load(File.read(path)) || {}
+        parse_int(config.dig('cascade', 'default_depth'))
+      rescue StandardError
+        nil
+      end
+
+      def initialize(graph:, ordered_names:, seed_name:, seed_template_file:, max_depth: nil)
         @graph = graph
         @ordered_names = ordered_names
         @seed_name = seed_name
         @seed_template_file = seed_template_file
+        @max_depth = max_depth
         @outcomes = []
       end
 
@@ -66,20 +116,20 @@ module Pangea
       # Upstream fails → we continue anyway so the user sees what else drifts.
       def plan(namespace: nil)
         announce(:plan)
-        each_stage(ordered_names) { |ops| ops.plan }
+        each_stage(ordered_names, primary: :plan) { |ops| ops.plan }
       end
 
       # Apply in topological order; abort the cascade on the first failure
       # since downstream reads assume upstream state.
       def apply(namespace: nil)
         announce(:apply)
-        each_stage(ordered_names, abort_on_failure: true) { |ops| ops.apply }
+        each_stage(ordered_names, primary: :apply, abort_on_failure: true) { |ops| ops.apply }
       end
 
       # Destroy in reverse topological order.
       def destroy(namespace: nil)
         announce(:destroy)
-        each_stage(ordered_names.reverse) { |ops| ops.destroy }
+        each_stage(ordered_names.reverse, primary: :destroy) { |ops| ops.destroy }
       end
 
       private
@@ -87,20 +137,24 @@ module Pangea
       def announce(op)
         t = Theme
         t.section("cascade #{op}")
-        t.structured_log(
+        parts = [
           [:info, 'Seed'],
           [:resource, seed_name],
           [:info, '→'],
           [:count, ordered_names.size.to_s],
           [:info, 'workspace(s)'],
-        )
+        ]
+        if max_depth
+          parts.concat([[:info, 'depth'], [:count, max_depth.to_s]])
+        end
+        t.structured_log(*parts)
         t.structured_log(
           [:info, 'Order'],
           [:path, ordered_names.join(' → ')],
         )
       end
 
-      def each_stage(names, abort_on_failure: false)
+      def each_stage(names, primary:, abort_on_failure: false)
         failures = []
         names.each_with_index do |name, i|
           workspace = graph[name]
@@ -112,7 +166,9 @@ module Pangea
           begin
             config = Config.new(template_file, namespace: nil)
             ops = Operations.new(config)
+            run_actions(ops, workspace.pre_actions, primary, :pre)
             yield ops
+            run_actions(ops, workspace.post_actions, primary, :post)
             record_outcome(ops)
           rescue StandardError => e
             record_outcome(ops, fallback_name: name, error: e)
@@ -134,6 +190,28 @@ module Pangea
           )
         end
         failures.empty?
+      end
+
+      # Execute declared pre/post actions at the current cascade visit.
+      # Silently skips actions that would conflict with the primary command
+      # (belt-and-suspenders — Workspace.load already rejects them).
+      def run_actions(ops, actions, primary, position)
+        return if actions.nil? || actions.empty?
+
+        primary_s = primary.to_s
+        actions.each do |action|
+          next if action == primary_s
+
+          Theme.structured_log(
+            [:divider, "  cascade.#{position}_action"],
+            [:info, action],
+          )
+          case action
+          when 'synth'  then ops.synth
+          when 'output' then ops.output
+          when 'init'   then ops.init
+          end
+        end
       end
 
       # Capture the StageOutcome from an Operations instance; fall back to

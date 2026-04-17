@@ -35,19 +35,38 @@ module Pangea
         end
       end
 
-      # A workspace in the constellation — its directory, name, and declared asks.
-      class Workspace
-        attr_reader :name, :dir, :asks
+      # Orthogonal actions the workspace runs at every cascade visit.
+      # Restricted to the allowlist below to prevent conflict with the
+      # primary cascade command (plan/apply/destroy/deploy).
+      ALLOWED_ACTIONS = %w[synth output init].freeze
+      CONFLICTING_ACTIONS = %w[plan apply destroy deploy].freeze
 
-        def initialize(name:, dir:, asks: [])
+      InvalidActionError = Class.new(StandardError)
+
+      # A workspace in the constellation — its directory, name, declared asks,
+      # and any per-cascade-visit actions (pre/post).
+      class Workspace
+        attr_reader :name, :dir, :asks, :pre_actions, :post_actions
+
+        def initialize(name:, dir:, asks: [], pre_actions: [], post_actions: [])
           @name = name
           @dir = dir
           @asks = asks.freeze
+          @pre_actions = pre_actions.freeze
+          @post_actions = post_actions.freeze
           freeze
         end
 
         # Load a workspace from its pangea.yml (returns nil if the dir has no
-        # pangea.yml). Missing reactivity block is valid — just yields empty asks.
+        # pangea.yml). Missing blocks are fine — empty arrays are used.
+        #
+        # Schema:
+        #   reactivity:
+        #     asks: [{layer, workspace, output, bind}]
+        #   cascade:
+        #     default_depth: N
+        #     pre_actions:  [synth, output, init]
+        #     post_actions: [synth, output, init]
         def self.load(dir)
           yml_path = File.join(dir, 'pangea.yml')
           return nil unless File.exist?(yml_path)
@@ -55,9 +74,33 @@ module Pangea
           config = YAML.safe_load(File.read(yml_path)) || {}
           name = config['workspace'] || File.basename(dir)
           asks = Array(config.dig('reactivity', 'asks')).map { |h| Ask.from_h(h) }
-          new(name: name, dir: dir, asks: asks)
+          pre = validate_actions(Array(config.dig('cascade', 'pre_actions')), dir: dir)
+          post = validate_actions(Array(config.dig('cascade', 'post_actions')), dir: dir)
+          new(name: name, dir: dir, asks: asks, pre_actions: pre, post_actions: post)
+        rescue InvalidActionError
+          raise
         rescue StandardError
           nil
+        end
+
+        # Sanity-check declared actions: allowlist only, no conflicts with
+        # plan/apply/destroy/deploy. Raises InvalidActionError on violation
+        # so the user gets a clear message at scan time.
+        def self.validate_actions(list, dir:)
+          list.map do |a|
+            s = a.to_s.strip
+            if CONFLICTING_ACTIONS.include?(s)
+              raise InvalidActionError,
+                "#{dir}/pangea.yml declares cascade action '#{s}' which " \
+                "conflicts with the primary command. Use the CLI instead."
+            end
+            unless ALLOWED_ACTIONS.include?(s)
+              raise InvalidActionError,
+                "#{dir}/pangea.yml declares unknown cascade action '#{s}'. " \
+                "Allowed: #{ALLOWED_ACTIONS.join(', ')}."
+            end
+            s
+          end.freeze
         end
 
         # Names of workspaces this one asks from (its direct upstream).
@@ -147,21 +190,28 @@ module Pangea
         # Transitive closure of `name` in both directions: every workspace
         # that must plan/apply together when user acts on `name`.
         # Returns a Set of names INCLUDING `name` itself.
-        def cascade_set(name)
+        #
+        # @param max_depth [Integer, nil] if set, limits traversal to that
+        #   many hops from `name` (0 = only seed, 1 = seed + direct neighbors,
+        #   etc). nil = unlimited (full reachable set).
+        def cascade_set(name, max_depth: nil)
           raise MissingWorkspaceError, "unknown workspace: #{name}" unless workspaces.key?(name)
 
-          visited = Set.new([name])
+          visited = { name => 0 }
           frontier = [name]
           until frontier.empty?
             n = frontier.shift
-            (upstream_of(n) + downstream_of(n)).each do |neighbor|
-              next if visited.include?(neighbor)
+            depth = visited[n]
+            next if max_depth && depth >= max_depth
 
-              visited << neighbor
+            (upstream_of(n) + downstream_of(n)).each do |neighbor|
+              next if visited.key?(neighbor)
+
+              visited[neighbor] = depth + 1
               frontier << neighbor
             end
           end
-          visited
+          Set.new(visited.keys)
         end
 
         # Topologically sort a subset of workspace names — earlier names can
