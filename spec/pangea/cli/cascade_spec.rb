@@ -174,4 +174,90 @@ RSpec.describe Pangea::CLI::Cascade do
       expect(call_order).to eq(%w[platform-vpc])
     end
   end
+
+  describe 'recap aggregation' do
+    let(:constellation) do
+      build_constellation(
+        'platform-vpc' => [],
+        'platform-dns' => [
+          { 'layer' => 'vpc', 'workspace' => 'platform-vpc', 'output' => 'vpc_id', 'bind' => 'vpc_id' },
+        ],
+      )
+    end
+
+    after { FileUtils.rm_rf(@root) if @root }
+
+    it 'collects one StageOutcome per stage' do
+      @root, paths = constellation
+      cascade = described_class.for_template(
+        File.join(paths['platform-dns'], 'platform_dns.rb'),
+      )
+      allow_any_instance_of(Pangea::CLI::Operations).to receive(:plan) do |ops|
+        name = File.basename(ops.config.template_dir)
+        ops.instance_variable_set(:@last_outcome, Pangea::CLI::Operations::StageOutcome.new(
+          operation: 'plan', workspace: name, success: true,
+          added: name == 'platform-vpc' ? 3 : 1,
+          changed: 0, removed: 0,
+          transient_errors: 0, dropped_warnings: 0, error: nil,
+        ))
+      end
+      allow($stderr).to receive(:puts)
+
+      cascade.plan
+
+      expect(cascade.outcomes.size).to eq(2)
+      expect(cascade.outcomes.map(&:workspace)).to eq(%w[platform-vpc platform-dns])
+      expect(cascade.outcomes.sum(&:total_changes)).to eq(4)
+    end
+
+    it 'records a synthetic failed outcome when a stage raises before running tofu' do
+      @root, paths = constellation
+      cascade = described_class.for_template(
+        File.join(paths['platform-dns'], 'platform_dns.rb'),
+      )
+      allow_any_instance_of(Pangea::CLI::Operations).to receive(:plan) do |ops|
+        name = File.basename(ops.config.template_dir)
+        raise 'boom' if name == 'platform-dns'
+
+        ops.instance_variable_set(:@last_outcome, Pangea::CLI::Operations::StageOutcome.new(
+          operation: 'plan', workspace: name, success: true,
+          added: 0, changed: 0, removed: 0,
+          transient_errors: 0, dropped_warnings: 0, error: nil,
+        ))
+      end
+      allow($stderr).to receive(:puts)
+
+      cascade.plan
+
+      expect(cascade.outcomes.size).to eq(2)
+      failed = cascade.outcomes.last
+      expect(failed.workspace).to eq('platform-dns')
+      expect(failed.success).to be(false)
+      expect(failed.error).to eq('boom')
+    end
+
+    it 'renders a recap section to stderr' do
+      @root, paths = constellation
+      cascade = described_class.for_template(
+        File.join(paths['platform-dns'], 'platform_dns.rb'),
+      )
+      allow_any_instance_of(Pangea::CLI::Operations).to receive(:plan) do |ops|
+        ops.instance_variable_set(:@last_outcome, Pangea::CLI::Operations::StageOutcome.new(
+          operation: 'plan', workspace: File.basename(ops.config.template_dir), success: true,
+          added: 2, changed: 1, removed: 0,
+          transient_errors: 0, dropped_warnings: 0, error: nil,
+        ))
+      end
+      lines = []
+      allow($stderr).to receive(:puts) { |line| lines << line }
+
+      cascade.plan
+
+      recap = lines.join("\n")
+      expect(recap).to match(/cascade recap/)
+      expect(recap).to match(/platform-vpc/)
+      expect(recap).to match(/platform-dns/)
+      expect(recap).to match(/Total:/)
+    end
+  end
 end

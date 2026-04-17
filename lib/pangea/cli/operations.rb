@@ -19,6 +19,20 @@ module Pangea
 
       TOFU = 'tofu'
 
+      # Structured outcome of one plan/apply/destroy invocation. Used by
+      # Cascade to aggregate a recap across every workspace in the run.
+      # `added`/`changed`/`removed` are zero when no change_summary event
+      # fired (verbose mode or non-plan/apply op).
+      StageOutcome = Struct.new(
+        :operation, :workspace, :success, :added, :changed, :removed,
+        :transient_errors, :dropped_warnings, :error,
+        keyword_init: true,
+      ) do
+        def total_changes
+          added.to_i + changed.to_i + removed.to_i
+        end
+      end
+
       def initialize(config)
         @config = config
         @synthesizer = Synthesizer.new(config)
@@ -72,6 +86,11 @@ module Pangea
         end
       end
 
+      # The structured outcome of the most recent plan/apply/destroy call
+      # on this Operations instance. nil if none has run yet. Cascade
+      # reads this after each stage to aggregate a recap.
+      attr_reader :last_outcome
+
       def init
         synth
         in_workspace { tofu_init }
@@ -97,10 +116,17 @@ module Pangea
       end
 
       # Run plan/apply/destroy in JSON-streamed mode by default, or
-      # pass-through if PANGEA_VERBOSE=1.
+      # pass-through if PANGEA_VERBOSE=1. Records a StageOutcome into
+      # `@last_outcome` for cascade aggregation; re-raises on failure
+      # so callers keep their original exception-based flow.
       def run_tofu(op, *extra_args)
         if verbose_mode?
           tofu(op, '-input=false', '-no-color', *extra_args)
+          @last_outcome = StageOutcome.new(
+            operation: op, workspace: workspace_basename,
+            success: true, added: 0, changed: 0, removed: 0,
+            transient_errors: 0, dropped_warnings: 0, error: nil,
+          )
         else
           run_tofu_json(op, *extra_args)
         end
@@ -141,9 +167,32 @@ module Pangea
             "tofu #{op} #{label} (exit #{$?.exitstatus})",
             level: kind,
           )
+          @last_outcome = outcome_from(op, collector, success: false,
+            error: "tofu #{op} #{label} (exit #{$?.exitstatus})")
           raise "[pangea] tofu #{op} #{label} (exit #{$?.exitstatus})"
         end
+
+        @last_outcome = outcome_from(op, collector, success: true, error: nil)
         true
+      end
+
+      def outcome_from(op, collector, success:, error:)
+        summary = collector.apply_summary || collector.plan_summary || {}
+        StageOutcome.new(
+          operation: op,
+          workspace: workspace_basename,
+          success: success,
+          added: summary['add'].to_i,
+          changed: summary['change'].to_i,
+          removed: summary['remove'].to_i,
+          transient_errors: collector.transient_errors.size,
+          dropped_warnings: collector.dropped_warnings.size,
+          error: error,
+        )
+      end
+
+      def workspace_basename
+        File.basename(config.template_dir)
       end
 
       def tofu(*args)

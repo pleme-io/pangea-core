@@ -20,7 +20,8 @@ module Pangea
     # structured summary line. Set PANGEA_NO_CASCADE=1 to fall back to
     # single-workspace behavior even when a cascade would otherwise fire.
     class Cascade
-      attr_reader :graph, :ordered_names, :seed_name, :seed_template_file
+      attr_reader :graph, :ordered_names, :seed_name, :seed_template_file,
+                  :outcomes
 
       def self.enabled?
         ENV['PANGEA_NO_CASCADE'] != '1'
@@ -58,6 +59,7 @@ module Pangea
         @ordered_names = ordered_names
         @seed_name = seed_name
         @seed_template_file = seed_template_file
+        @outcomes = []
       end
 
       # Run plan across every cascaded workspace in topological order.
@@ -106,11 +108,14 @@ module Pangea
           next unless template_file
 
           stage_banner(name, i + 1, names.size)
+          ops = nil
           begin
             config = Config.new(template_file, namespace: nil)
             ops = Operations.new(config)
             yield ops
+            record_outcome(ops)
           rescue StandardError => e
+            record_outcome(ops, fallback_name: name, error: e)
             failures << [name, e]
             if abort_on_failure
               Theme.log("cascade aborted at #{name}: #{e.message}", level: :error)
@@ -121,6 +126,7 @@ module Pangea
           end
         end
 
+        render_recap
         unless failures.empty?
           Theme.log(
             "cascade completed with #{failures.size} failure(s): #{failures.map(&:first).join(', ')}",
@@ -128,6 +134,72 @@ module Pangea
           )
         end
         failures.empty?
+      end
+
+      # Capture the StageOutcome from an Operations instance; fall back to
+      # a synthetic "failed before counts" outcome when the stage raised
+      # before Operations#run_tofu populated last_outcome.
+      def record_outcome(ops, fallback_name: nil, error: nil)
+        outcome = ops&.last_outcome
+        outcome ||= Operations::StageOutcome.new(
+          operation: 'unknown',
+          workspace: fallback_name || ops&.config&.template_name,
+          success: error.nil?,
+          added: 0, changed: 0, removed: 0,
+          transient_errors: 0, dropped_warnings: 0,
+          error: error&.message,
+        )
+        @outcomes << outcome
+      end
+
+      # Themed recap table: one row per stage with counts + status.
+      def render_recap
+        return if outcomes.empty?
+
+        t = Theme
+        t.section('cascade recap')
+
+        totals = { added: 0, changed: 0, removed: 0, failed: 0, transient: 0 }
+        outcomes.each do |o|
+          totals[:added]     += o.added.to_i
+          totals[:changed]   += o.changed.to_i
+          totals[:removed]   += o.removed.to_i
+          totals[:failed]    += 1 unless o.success
+          totals[:transient] += o.transient_errors.to_i
+        end
+
+        outcomes.each do |o|
+          status_role = if !o.success then :error
+                        elsif o.transient_errors.to_i.positive? then :transient
+                        elsif o.total_changes.zero? then :noop
+                        else :success
+                        end
+          status_glyph = case status_role
+                         when :error     then '✗'
+                         when :transient then '⚠'
+                         when :noop      then '='
+                         else                 '✔'
+                         end
+          t.structured_log(
+            [status_role, status_glyph],
+            [:resource, o.workspace.to_s.ljust(24)],
+            [:info, o.operation.to_s.ljust(7)],
+            [:create, "+#{o.added.to_i}"],
+            [:update, "~#{o.changed.to_i}"],
+            [:delete, "-#{o.removed.to_i}"],
+            marker_level: status_role == :error ? :error : :info,
+          )
+        end
+
+        t.structured_log(
+          [:heading, 'Total:'],
+          [:create, "+#{totals[:added]} added"],
+          [:update, "~#{totals[:changed]} changed"],
+          [:delete, "-#{totals[:removed]} destroyed"],
+          [:error, "✗#{totals[:failed]} failed"],
+          [:transient, "⚠#{totals[:transient]} transient"],
+          marker_level: totals[:failed].positive? ? :error : :heading,
+        )
       end
 
       # A workspace dir contains one or more .rb templates alongside
