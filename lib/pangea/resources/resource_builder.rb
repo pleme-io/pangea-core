@@ -96,28 +96,33 @@ module Pangea
       private
 
       def _synthesize_block(block_type, tf_type, name, input, map, map_present, map_bool, tags, labels, custom_block, meta_args = {})
+        # `_emit` bypasses Ruby's normal method lookup and dispatches straight to
+        # the synthesizer's `method_missing`. Without this, attribute names that
+        # collide with Kernel/Object methods (e.g. GitHub's `fork`, `raise`,
+        # `send`, `class`) would invoke the Ruby builtin instead of the
+        # abstract-synthesizer's block-recording DSL.
         send(block_type, tf_type, name) do
           # input[attr] resolves refs over validated attrs transparently
-          map.each { |attr| __send__(attr, input[attr]) }
-          map_present.each { |attr| val = input[attr]; __send__(attr, val) if val }
-          map_bool.each { |attr| val = input[attr]; __send__(attr, val) unless val.nil? }
+          map.each { |attr| send(:method_missing, attr, input[attr]) }
+          map_present.each { |attr| val = input[attr]; send(:method_missing, attr, val) if val }
+          map_bool.each { |attr| val = input[attr]; send(:method_missing, attr, val) unless val.nil? }
           if tags
             tag_val = input[tags]
-            __send__(tags, tag_val) if tag_val&.respond_to?(:any?) && tag_val.any?
+            send(:method_missing, tags, tag_val) if tag_val&.respond_to?(:any?) && tag_val.any?
           end
           if labels
             label_val = input[labels]
-            __send__(labels, label_val) if label_val&.respond_to?(:any?) && label_val.any?
+            send(:method_missing, labels, label_val) if label_val&.respond_to?(:any?) && label_val.any?
           end
           instance_exec(self, input, &custom_block) if custom_block
 
           meta_args.each do |meta_key, meta_val|
             if meta_val.is_a?(Hash)
-              __send__(meta_key) do
-                meta_val.each { |k, v| __send__(k, v) }
+              send(:method_missing, meta_key) do
+                meta_val.each { |k, v| send(:method_missing, k, v) }
               end
             else
-              __send__(meta_key, meta_val)
+              send(:method_missing, meta_key, meta_val)
             end
           end
         end
