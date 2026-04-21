@@ -1,5 +1,13 @@
 # pangea-core
 
+<!-- Blackmatter alignment: pillars 5, 10 -->
+<!-- See ~/code/github/pleme-io/BLACKMATTER.md for pillar definitions. -->
+
+## Blackmatter pillars upheld
+
+- **Pillar 5** (Infrastructure declaration): pangea-core is the foundation. ResourceBuilder DSL + validation + `Pangea::Contracts::*` result types + `RemoteState` cross-workspace references + `ArchDsl` mixin + `Pangea::Presets` — every pangea provider gem and architecture stands on these primitives.
+- **Pillar 10** (Proof discipline): Dry::Struct validation at the edge catches malformed configs at plan time, not apply time. Cross-workspace output typing means broken refs fail at synthesis, not at runtime.
+
 Foundation library for the Pangea infrastructure DSL. Provides the type system,
 resource builder DSL, synthesis test helpers, and cross-provider composition primitives.
 
