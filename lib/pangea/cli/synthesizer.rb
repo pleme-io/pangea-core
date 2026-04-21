@@ -60,13 +60,31 @@ module Pangea
         end
       end
 
-      # Captures the block from `template :name do ... end` DSL.
-      # Overrides Kernel#template temporarily to intercept the block.
+      # Captures the block from the template file. Two DSL surfaces
+      # are supported in parallel:
+      #
+      #   template :name do … end         — original; intercepts via
+      #                                     Kernel#template override.
+      #   Pangea.architecture 'name' do … end
+      #                                   — abstract concept; block
+      #                                     lands in
+      #                                     Pangea.last_architecture.
+      #
+      # When both are present in the same file the ``template``
+      # override takes precedence (it runs first during eval); the
+      # architecture fallback catches templates that never call
+      # ``template`` explicitly.
       def capture_template_block(content, file_path)
         captured = nil
         original = method(:template) if respond_to?(:template, true)
 
         define_singleton_method(:template) { |_name, &blk| captured = blk }
+
+        # Reset the architecture registry's last-declared pointer so
+        # we don't accidentally pick up a leftover from a previous
+        # template's eval in the same process (tests, bulk mode).
+        Pangea.reset_architectures! if Pangea.respond_to?(:reset_architectures!)
+
         eval(content, binding, file_path) # rubocop:disable Security/Eval
 
         # Restore original method if it existed
@@ -76,7 +94,7 @@ module Pangea
           singleton_class.remove_method(:template) if singleton_class.method_defined?(:template)
         end
 
-        captured
+        captured || Pangea.last_architecture&.block
       end
 
       # JSON round-trip to normalize symbol keys → string keys

@@ -89,6 +89,13 @@ require_relative 'pangea/resources/network_helpers'
 # Configuration presets
 require_relative 'pangea/presets'
 
+# Architecture DSL — Pangea.architecture 'name' do … end entry point.
+# Must come after terraform-synthesizer is required (which happens in
+# the TerraformSynthesizer-consuming layers below) so TemplateHelpers
+# can mix into it; the file itself is gated by `defined?` so load
+# order is forgiving.
+require_relative 'pangea/architecture'
+
 # Tagging and fingerprinting
 require_relative 'pangea/tagging'
 
