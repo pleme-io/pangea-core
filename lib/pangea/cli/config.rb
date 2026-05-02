@@ -29,6 +29,9 @@ module Pangea
       def resolve_namespace(explicit)
         return explicit if explicit && !explicit.empty?
 
+        env_ns = ENV['PANGEA_NAMESPACE']
+        return env_ns if env_ns && !env_ns.empty?
+
         load_default_namespace || 'default'
       end
 
@@ -77,10 +80,11 @@ module Pangea
         when 'local'
           { 'local' => { 'path' => state['path'] || 'terraform.tfstate' } }
         when 's3'
+          key_prefix = interpolate_env(state['key'] || s3_defaults['key'])
           {
             's3' => {
               'bucket' => state['bucket'] || s3_defaults['bucket'],
-              'key' => "#{state['key'] || s3_defaults['key']}/#{@template_name}/terraform.tfstate",
+              'key' => "#{key_prefix}/#{@template_name}/terraform.tfstate",
               'region' => state['region'] || s3_defaults['region'] || 'us-east-1',
               'dynamodb_table' => state['dynamodb_table'] || s3_defaults['dynamodb_table'],
               'encrypt' => state.fetch('encrypt', s3_defaults.fetch('encrypt', true)),
@@ -88,6 +92,30 @@ module Pangea
           }
         else
           {}
+        end
+      end
+
+      # Substitute ${ENV_VAR} references in a string against the current
+      # process environment. Lets pangea.yml `state.key` values express
+      # partitioning dimensions (e.g. `pangea/platform-dns/${PLATFORM}`)
+      # without pangea-core knowing about any specific dimension —
+      # that's a domain concern owned by the consumer (e.g.
+      # pangea-architectures). Pure string templating, no YAML coercion.
+      #
+      # Raises if a referenced env var is unset, so a partitioned-state
+      # scheme fails fast instead of silently collapsing to a shared key
+      # when the operator forgets to export the dimension variable.
+      def interpolate_env(template)
+        return template unless template.is_a?(String)
+
+        template.gsub(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/) do
+          var = Regexp.last_match(1)
+          val = ENV[var]
+          if val.nil? || val.empty?
+            raise "[pangea] state.key references ${#{var}} but the env is unset " \
+                  "(workspace: #{@template_name}). Export #{var} before running."
+          end
+          val
         end
       end
 
