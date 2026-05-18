@@ -1,8 +1,7 @@
 # frozen_string_literal: true
 
 require 'json'
-require 'open3'
-require 'tempfile'
+require_relative 'runner'
 
 module Pangea
   module Magma
@@ -91,8 +90,10 @@ module Pangea
           end
 
           # Render typed MigrationPlan JSON that `magma migrate` consumes
-          # directly (the on-disk shape of magma_migrate::MigrationPlan).
-          magma_plan = {
+          # directly (the on-disk shape of magma_migrate::MigrationPlan)
+          # and dispatch through the shared Runner. The Runner owns
+          # tempfile cleanup + error capture.
+          Runner.invoke('migrate', json_arg: {
             from: { name: @migration.from.to_s, state_path: @migration.from_state_path },
             to:   { name: @migration.to.to_s,   state_path: @migration.to_state_path   },
             moves: @actions.map { |a| { source_address: a.address, target_address: a.new_address } },
@@ -102,20 +103,7 @@ module Pangea
               dependent_resources:  @migration.preserve.include?(:dependent_resources),
             },
             dry_run: @migration.dry_run,
-          }
-
-          tmp = Tempfile.new(['magma-migrate', '.json'])
-          begin
-            tmp.write(JSON.pretty_generate(magma_plan))
-            tmp.close
-            out, err, status = Open3.capture3(Pangea::Magma.binary, 'migrate', tmp.path)
-            unless status.success?
-              raise "magma migrate failed (exit #{status.exitstatus}):\n#{err}\n#{out}"
-            end
-            JSON.parse(out)
-          ensure
-            tmp.unlink
-          end
+          })
         end
 
         def to_h

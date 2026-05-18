@@ -52,11 +52,17 @@ module Pangea
         end
       end
 
+      # Default requires for every Pangea-rendered workspace. Most
+      # workspaces target the terraform-json input format; declaring
+      # this on every workspace is boilerplate, so we make it the
+      # default and let exotic workspaces override it.
+      DEFAULT_REQUIRES = { input_format: 'terraform-json' }.freeze
+
       class << self
         # Build a typed Workspace declaration. Raises ArgumentError if
         # the declaration is malformed.
         def declare(name:, template:, workspace_dir:,
-                    inputs: {}, outputs: {}, requires: {})
+                    inputs: {}, outputs: {}, requires: DEFAULT_REQUIRES)
           raise ArgumentError, 'name required (Symbol or String)' if name.nil?
           raise ArgumentError, 'template required' if template.nil?
           raise ArgumentError, 'workspace_dir required' if workspace_dir.nil?

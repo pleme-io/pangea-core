@@ -28,6 +28,8 @@ module Pangea
           orch_or_chain = load_template(template_file)
 
           chain = case orch_or_chain
+                  when Pangea::Magma::Stack
+                    orch_or_chain.chain
                   when Pangea::Magma::Orchestrator
                     distribution = orch_or_chain.distribution
                     distribution.to_chain
@@ -37,9 +39,9 @@ module Pangea
                     orch_or_chain.to_chain
                   else
                     raise ArgumentError,
-                          "#{template_file} did not define `orchestrator`, " \
-                          "`chain`, or `distribution` at top level; got " \
-                          "#{orch_or_chain.class}"
+                          "#{template_file} did not define `stack`, " \
+                          "`orchestrator`, `chain`, or `distribution` at " \
+                          "top level; got #{orch_or_chain.class}"
                   end
 
           chain = subset_chain(chain, only) if only && !only.empty?
@@ -81,13 +83,13 @@ module Pangea
           # / `chain = ...` / `distribution = ...` become local vars.
           binding_obj = TOPLEVEL_BINDING.dup
           binding_obj.eval(File.read(template_file), template_file)
-          %i[orchestrator chain distribution].each do |sym|
+          %i[stack orchestrator chain distribution].each do |sym|
             return binding_obj.local_variable_get(sym) if
               binding_obj.local_variables.include?(sym)
           end
 
           raise ArgumentError,
-                "#{template_file}: no orchestrator/chain/distribution found"
+                "#{template_file}: no stack/orchestrator/chain/distribution found"
         end
 
         def subset_chain(chain, names)
@@ -110,3 +112,4 @@ require 'pangea/magma'
 require 'pangea/magma/chain'
 require 'pangea/magma/distribution'
 require 'pangea/magma/orchestrator'
+require 'pangea/magma/stack'

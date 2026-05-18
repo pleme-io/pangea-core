@@ -3,6 +3,7 @@
 require 'json'
 require 'open3'
 require_relative 'backend'
+require_relative 'magma/runner'
 
 module Pangea
   # Ruby wrapper around the `magma` CLI's fixture / capabilities surface.
@@ -62,101 +63,64 @@ module Pangea
       # Returns the parsed WorkspaceReport Hash; raises VerificationFailed
       # on non-zero exit.
       def verify_workspace(path)
-        out, err, status = Open3.capture3(binary, 'fixture', 'verify', path.to_s)
-        unless status.success?
-          raise VerificationFailed,
-                "magma fixture verify #{path} failed (exit #{status.exitstatus}):\n#{err}\n#{out}"
-        end
-        JSON.parse(out)
+        Runner.invoke('fixture', argv_extras: ['verify', path.to_s])
+      rescue Runner::SubprocessError => e
+        raise VerificationFailed, e.message
       end
 
       # Verify every `.tf.json` under `dir`. Returns the parsed
       # AggregateReport Hash with passed/failed counts + per-workspace
-      # breakdown.
+      # breakdown. Allow exit=1 since the CLI still emits JSON when
+      # some fixtures fail.
       def verify_directory(dir)
-        out, _err, status = Open3.capture3(binary, 'fixture', 'verify-dir', dir.to_s)
-        # exit==0 means all passed; exit==1 means some failed but JSON
-        # is still emitted on stdout; both shapes parseable.
-        json = JSON.parse(out)
-        unless [0, 1].include?(status.exitstatus)
-          raise VerificationFailed,
-                "magma fixture verify-dir #{dir} crashed (exit #{status.exitstatus})"
-        end
-        json
+        Runner.invoke('fixture', argv_extras: ['verify-dir', dir.to_s],
+                      allow_exit: [1])
+      rescue Runner::SubprocessError => e
+        raise VerificationFailed, e.message
       end
 
       # Drive `magma flow run <flow.json>` and parse the AggregateReport.
       # `flow` is the typed flow shape (workspaces + edges); see
-      # `magma-cli` `FlowFile` / theory/PANGEA-MAGMA-ORCHESTRATION.md §IV.
+      # `magma-flow` / theory/PANGEA-MAGMA-ORCHESTRATION.md §IV.
       def flow(flow_hash)
-        require 'tempfile'
-        tmp = Tempfile.new(['magma-flow', '.json'])
-        begin
-          tmp.write(JSON.pretty_generate(flow_hash))
-          tmp.close
-          out, err, status = Open3.capture3(binary, 'flow', tmp.path)
-          unless status.success?
-            raise VerificationFailed,
-                  "magma flow #{tmp.path} failed (exit #{status.exitstatus}):\n#{err}\n#{out}"
-          end
-          JSON.parse(out)
-        ensure
-          tmp.unlink
-        end
+        Runner.invoke('flow', json_arg: flow_hash)
+      rescue Runner::SubprocessError => e
+        raise VerificationFailed, e.message
       end
 
       # Drive `magma migrate <plan.json>` and parse the MigrationReceipt.
       # `plan` is the typed magma_migrate::MigrationPlan shape.
       def migrate(plan_hash)
-        require 'tempfile'
-        tmp = Tempfile.new(['magma-migrate', '.json'])
-        begin
-          tmp.write(JSON.pretty_generate(plan_hash))
-          tmp.close
-          out, err, status = Open3.capture3(binary, 'migrate', tmp.path)
-          unless status.success?
-            raise VerificationFailed,
-                  "magma migrate #{tmp.path} failed (exit #{status.exitstatus}):\n#{err}\n#{out}"
-          end
-          JSON.parse(out)
-        ensure
-          tmp.unlink
-        end
+        Runner.invoke('migrate', json_arg: plan_hash)
+      rescue Runner::SubprocessError => e
+        raise VerificationFailed, e.message
       end
 
       # Drive `magma split` directly. `args` keys:
       # `:from, :from_state, :to, :to_state, :resources (Array<String>), :dry_run (bool)`.
       def split(args)
-        argv = [binary, 'split',
-                '--from',       args.fetch(:from).to_s,
-                '--from-state', args.fetch(:from_state).to_s,
-                '--to',         args.fetch(:to).to_s,
-                '--to-state',   args.fetch(:to_state).to_s]
-        Array(args.fetch(:resources, [])).each { |r| argv += ['--resource', r] }
-        argv << '--dry-run' if args[:dry_run]
-        out, err, status = Open3.capture3(*argv)
-        unless status.success?
-          raise VerificationFailed,
-                "magma split failed (exit #{status.exitstatus}):\n#{err}\n#{out}"
-        end
-        JSON.parse(out)
+        extras = ['--from',       args.fetch(:from).to_s,
+                  '--from-state', args.fetch(:from_state).to_s,
+                  '--to',         args.fetch(:to).to_s,
+                  '--to-state',   args.fetch(:to_state).to_s]
+        Array(args.fetch(:resources, [])).each { |r| extras += ['--resource', r] }
+        extras << '--dry-run' if args[:dry_run]
+        Runner.invoke('split', argv_extras: extras)
+      rescue Runner::SubprocessError => e
+        raise VerificationFailed, e.message
       end
 
       # Drive `magma merge` directly. `args` keys:
       # `:from, :from_state, :to, :to_state, :dry_run (bool)`.
       def merge(args)
-        argv = [binary, 'merge',
-                '--from',       args.fetch(:from).to_s,
-                '--from-state', args.fetch(:from_state).to_s,
-                '--to',         args.fetch(:to).to_s,
-                '--to-state',   args.fetch(:to_state).to_s]
-        argv << '--dry-run' if args[:dry_run]
-        out, err, status = Open3.capture3(*argv)
-        unless status.success?
-          raise VerificationFailed,
-                "magma merge failed (exit #{status.exitstatus}):\n#{err}\n#{out}"
-        end
-        JSON.parse(out)
+        extras = ['--from',       args.fetch(:from).to_s,
+                  '--from-state', args.fetch(:from_state).to_s,
+                  '--to',         args.fetch(:to).to_s,
+                  '--to-state',   args.fetch(:to_state).to_s]
+        extras << '--dry-run' if args[:dry_run]
+        Runner.invoke('merge', argv_extras: extras)
+      rescue Runner::SubprocessError => e
+        raise VerificationFailed, e.message
       end
 
       # Reset memoization — for tests that mutate MAGMA_BINARY env.
@@ -169,12 +133,10 @@ module Pangea
       private
 
       def probe_capabilities
-        out, _err, status = Open3.capture3(binary, 'capabilities')
-        unless status.success?
-          raise Pangea::Backend::BackendUnavailable,
-                "magma capabilities failed (exit #{status.exitstatus})"
-        end
-        JSON.parse(out)
+        Runner.invoke('capabilities')
+      rescue Runner::SubprocessError => e
+        raise Pangea::Backend::BackendUnavailable,
+              "magma capabilities failed (exit #{e.exit_code})"
       rescue Errno::ENOENT
         raise Pangea::Backend::BackendUnavailable, "magma binary not on PATH"
       end

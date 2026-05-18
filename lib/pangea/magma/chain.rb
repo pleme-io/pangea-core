@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
 require 'json'
-require 'open3'
 require_relative 'workspace'
+require_relative 'runner'
 
 module Pangea
   module Magma
@@ -133,28 +133,25 @@ module Pangea
         order
       end
 
-      # Reconcile every workspace in topological order. Serializes the
-      # chain to a flow.json and invokes `magma flow run`; parses the
-      # report back. Returns an AggregateReport-shaped Hash.
-      def reconcile_all
-        flow_hash = {
+      # The typed flow JSON the chain serializes to. Public so
+      # operators can audit it before reconciliation and rspec can
+      # snapshot-match it.
+      def to_flow_hash
+        h = {
           workspaces: @workspaces.values.map { |w| { name: w.name.to_s, dir: w.workspace_dir } },
           edges:      @edges.map(&:to_h),
         }
-        flow_hash[:optimization] = @optimization.to_h if @optimization
-        flow_json = JSON.pretty_generate(flow_hash)
-        tmp = Tempfile.new(['magma-chain', '.json'])
-        begin
-          tmp.write(flow_json)
-          tmp.close
-          out, err, status = Open3.capture3(Pangea::Magma.binary, 'flow', tmp.path)
-          unless status.success?
-            raise "magma flow failed (exit #{status.exitstatus}):\n#{err}\n#{out}"
-          end
-          JSON.parse(out)
-        ensure
-          tmp.unlink
-        end
+        h[:optimization] = @optimization.to_h if @optimization
+        h
+      end
+
+      # Reconcile every workspace in topological order via the
+      # canonical `magma flow run` engine (magma-flow crate). Returns
+      # an AggregateReport-shaped Hash. Delegates to Pangea::Magma.flow
+      # (which delegates to Runner.invoke) so this method stays one
+      # line of intent.
+      def reconcile_all
+        Pangea::Magma.flow(to_flow_hash)
       end
 
       # Subset reconciliation — run a slice of the chain with the rest
@@ -200,5 +197,3 @@ module Pangea
     end
   end
 end
-
-require 'tempfile'
