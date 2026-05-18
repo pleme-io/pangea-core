@@ -67,30 +67,41 @@ module Pangea
 
       class << self
         # Build a typed Chain. Yields a Builder; returns a frozen Chain.
-        def build
+        def build(optimization: nil)
           b = Builder.new
           yield b
-          new(workspaces: b.workspaces, edges: b.edges)
+          new(workspaces: b.workspaces, edges: b.edges,
+              optimization: optimization)
         end
 
         # Compose: produce a Chain from a list of workspaces with no
         # cross-workspace edges (used for "deploy these in sequence
         # without typed-value flow" scenarios).
-        def compose(workspaces, output_propagation: :in_memory)
+        def compose(workspaces, output_propagation: :in_memory, optimization: nil)
           b = Builder.new
           workspaces.each { |w| b.workspace(w) }
           new(workspaces: b.workspaces, edges: b.edges,
-              output_propagation: output_propagation)
+              output_propagation: output_propagation,
+              optimization: optimization)
         end
       end
 
-      attr_reader :workspaces, :edges, :output_propagation
+      attr_reader :workspaces, :edges, :output_propagation, :optimization
 
-      def initialize(workspaces:, edges:, output_propagation: :in_memory)
+      def initialize(workspaces:, edges:, output_propagation: :in_memory,
+                     optimization: nil)
         @workspaces         = workspaces.freeze
         @edges              = edges.freeze
         @output_propagation = output_propagation
+        @optimization       = optimization
         validate!
+      end
+
+      # Return a new Chain with the given optimization hints. Used by
+      # Orchestrator to attach Optimization without rebuilding the chain.
+      def with_optimization(opt)
+        Chain.new(workspaces: @workspaces, edges: @edges,
+                  output_propagation: @output_propagation, optimization: opt)
       end
 
       def node_count
@@ -126,10 +137,12 @@ module Pangea
       # chain to a flow.json and invokes `magma flow run`; parses the
       # report back. Returns an AggregateReport-shaped Hash.
       def reconcile_all
-        flow_json = JSON.pretty_generate(
+        flow_hash = {
           workspaces: @workspaces.values.map { |w| { name: w.name.to_s, dir: w.workspace_dir } },
           edges:      @edges.map(&:to_h),
-        )
+        }
+        flow_hash[:optimization] = @optimization.to_h if @optimization
+        flow_json = JSON.pretty_generate(flow_hash)
         tmp = Tempfile.new(['magma-chain', '.json'])
         begin
           tmp.write(flow_json)
@@ -159,11 +172,13 @@ module Pangea
       end
 
       def to_h
-        {
+        h = {
           output_propagation: @output_propagation,
-          workspaces: @workspaces.transform_values(&:to_h),
-          edges:      @edges.map(&:to_h),
+          workspaces:         @workspaces.transform_values(&:to_h),
+          edges:              @edges.map(&:to_h),
         }
+        h[:optimization] = @optimization.to_h if @optimization
+        h
       end
 
       def to_json(*args)

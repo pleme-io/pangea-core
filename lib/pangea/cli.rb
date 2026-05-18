@@ -4,6 +4,7 @@ require_relative 'cli/config'
 require_relative 'cli/synthesizer'
 require_relative 'cli/operations'
 require_relative 'cli/cascade'
+require_relative 'cli/orchestrate'
 
 module Pangea
   # CLI for the Pangea IaC DSL.
@@ -15,21 +16,25 @@ module Pangea
   #   pangea destroy template.rb --namespace development
   #   pangea synth template.rb  # synthesis only
   #   pangea bulk plan --namespace development  # all .rb templates in cwd
+  #   pangea orchestrate distribution.rb --backend magma
   #
   class CLI
-    OPERATIONS = %w[plan apply destroy synth output init bulk].freeze
+    OPERATIONS = %w[plan apply destroy synth output init bulk orchestrate].freeze
 
     HELP = <<~HELP
       Usage: pangea <operation> <template.rb> [--namespace <ns>] [--depth <n>]
 
       Operations:
-        plan       Synthesize + tofu plan
-        apply      Synthesize + tofu apply -auto-approve
-        destroy    Synthesize + tofu destroy -auto-approve
-        synth      Synthesize only (write JSON, no tofu)
-        output     Run tofu output -json on existing workspace
-        init       Synthesize + tofu init (no plan/apply)
-        bulk       Run operation on all .rb templates in a directory
+        plan         Synthesize + tofu plan
+        apply        Synthesize + tofu apply -auto-approve
+        destroy      Synthesize + tofu destroy -auto-approve
+        synth        Synthesize only (write JSON, no tofu)
+        output       Run tofu output -json on existing workspace
+        init         Synthesize + tofu init (no plan/apply)
+        bulk         Run operation on all .rb templates in a directory
+        orchestrate  Drive `magma flow run` over a Pangea::Magma::Orchestrator
+                     / Chain / Distribution declared in the template file.
+                     Flags: --backend (magma|tofu), --only foo,bar, --dry-run.
 
       Bulk usage:
         pangea bulk <operation> [--namespace <ns>] [--dir <path>]
@@ -56,8 +61,12 @@ module Pangea
       def run(argv = ARGV.dup)
         operation, template_file, namespace, bulk_dir, options = parse(argv)
 
-        if operation == 'bulk'
+        case operation
+        when 'bulk'
           run_bulk(template_file, namespace, bulk_dir)
+        when 'orchestrate'
+          Orchestrate.run(template_file, backend: options[:backend],
+                          only: options[:only], dry_run: options[:dry_run])
         else
           run_single(operation, template_file, namespace, options)
         end
@@ -129,10 +138,16 @@ module Pangea
         bulk_dir = extract_flag(argv, '--dir', '-d')
         depth_raw = extract_flag(argv, '--depth', '-D')
         no_cascade = extract_switch(argv, '--no-cascade')
+        backend = extract_flag(argv, '--backend', '-b')
+        only_raw = extract_flag(argv, '--only', '-o')
+        dry_run = extract_switch(argv, '--dry-run')
 
         options = {
           depth: parse_depth(depth_raw),
           no_cascade: no_cascade,
+          backend: backend,
+          only: only_raw ? only_raw.split(',').map(&:to_sym) : nil,
+          dry_run: dry_run,
         }
 
         if operation == 'bulk'

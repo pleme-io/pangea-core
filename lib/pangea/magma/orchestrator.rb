@@ -31,9 +31,12 @@ module Pangea
       end
 
       # Full reconcile across the distribution. Returns the
-      # AggregateReport from `magma flow run`.
+      # AggregateReport from `magma flow run`. The Orchestrator's
+      # `:optimization` attaches to the chain so its hints survive
+      # the round-trip through the flow.json.
       def deploy!(only: nil)
         chain = @distribution.to_chain
+        chain = chain.with_optimization(@optimization) if @optimization
         chain = subset_chain(chain, only) if only && !only.empty?
         chain.reconcile_all
       end
@@ -83,7 +86,8 @@ module Pangea
         sub_workspaces = chain.workspaces.select { |k, _| wanted.include?(k) }
         sub_edges      = chain.edges.select { |e| wanted.include?(e.from) && wanted.include?(e.to) }
         Chain.new(workspaces: sub_workspaces, edges: sub_edges,
-                  output_propagation: chain.output_propagation)
+                  output_propagation: chain.output_propagation,
+                  optimization: chain.optimization)
       end
     end
   end

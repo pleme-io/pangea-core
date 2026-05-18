@@ -85,6 +85,80 @@ module Pangea
         json
       end
 
+      # Drive `magma flow run <flow.json>` and parse the AggregateReport.
+      # `flow` is the typed flow shape (workspaces + edges); see
+      # `magma-cli` `FlowFile` / theory/PANGEA-MAGMA-ORCHESTRATION.md §IV.
+      def flow(flow_hash)
+        require 'tempfile'
+        tmp = Tempfile.new(['magma-flow', '.json'])
+        begin
+          tmp.write(JSON.pretty_generate(flow_hash))
+          tmp.close
+          out, err, status = Open3.capture3(binary, 'flow', tmp.path)
+          unless status.success?
+            raise VerificationFailed,
+                  "magma flow #{tmp.path} failed (exit #{status.exitstatus}):\n#{err}\n#{out}"
+          end
+          JSON.parse(out)
+        ensure
+          tmp.unlink
+        end
+      end
+
+      # Drive `magma migrate <plan.json>` and parse the MigrationReceipt.
+      # `plan` is the typed magma_migrate::MigrationPlan shape.
+      def migrate(plan_hash)
+        require 'tempfile'
+        tmp = Tempfile.new(['magma-migrate', '.json'])
+        begin
+          tmp.write(JSON.pretty_generate(plan_hash))
+          tmp.close
+          out, err, status = Open3.capture3(binary, 'migrate', tmp.path)
+          unless status.success?
+            raise VerificationFailed,
+                  "magma migrate #{tmp.path} failed (exit #{status.exitstatus}):\n#{err}\n#{out}"
+          end
+          JSON.parse(out)
+        ensure
+          tmp.unlink
+        end
+      end
+
+      # Drive `magma split` directly. `args` keys:
+      # `:from, :from_state, :to, :to_state, :resources (Array<String>), :dry_run (bool)`.
+      def split(args)
+        argv = [binary, 'split',
+                '--from',       args.fetch(:from).to_s,
+                '--from-state', args.fetch(:from_state).to_s,
+                '--to',         args.fetch(:to).to_s,
+                '--to-state',   args.fetch(:to_state).to_s]
+        Array(args.fetch(:resources, [])).each { |r| argv += ['--resource', r] }
+        argv << '--dry-run' if args[:dry_run]
+        out, err, status = Open3.capture3(*argv)
+        unless status.success?
+          raise VerificationFailed,
+                "magma split failed (exit #{status.exitstatus}):\n#{err}\n#{out}"
+        end
+        JSON.parse(out)
+      end
+
+      # Drive `magma merge` directly. `args` keys:
+      # `:from, :from_state, :to, :to_state, :dry_run (bool)`.
+      def merge(args)
+        argv = [binary, 'merge',
+                '--from',       args.fetch(:from).to_s,
+                '--from-state', args.fetch(:from_state).to_s,
+                '--to',         args.fetch(:to).to_s,
+                '--to-state',   args.fetch(:to_state).to_s]
+        argv << '--dry-run' if args[:dry_run]
+        out, err, status = Open3.capture3(*argv)
+        unless status.success?
+          raise VerificationFailed,
+                "magma merge failed (exit #{status.exitstatus}):\n#{err}\n#{out}"
+        end
+        JSON.parse(out)
+      end
+
       # Reset memoization — for tests that mutate MAGMA_BINARY env.
       def reset!
         @installed = nil

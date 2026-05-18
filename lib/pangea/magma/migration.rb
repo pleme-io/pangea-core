@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 require 'json'
+require 'open3'
+require 'tempfile'
 
 module Pangea
   module Magma
@@ -67,17 +69,53 @@ module Pangea
           lines.join("\n")
         end
 
+        # Apply the typed Plan via `magma migrate <plan.json>`. Returns
+        # the parsed `MigrationReceipt` Hash on success (with BLAKE3
+        # state-file hashes pre/post per
+        # theory/PANGEA-MAGMA-ORCHESTRATION.md §V). Raises on either
+        # invariant violation or magma exit≠0.
         def apply!
           raise InvariantViolation,
                 "would recreate: #{@would_recreate.inspect}" unless invariants_satisfied?
 
-          # M0.2: `magma migrate <plan.json>` consumes this typed plan.
-          # Until that subcommand lands, raise NotImplementedError with
-          # the typed plan so the operator can audit the intended ops.
-          raise NotImplementedError,
-                "magma migrate subcommand awaits M0.2 — typed Plan ready " \
-                "for offline inspection: #{summary}\nActions:\n  " +
-                @actions.map(&:to_h).map(&:to_json).join("\n  ")
+          unless @migration.from_state_path
+            raise ArgumentError,
+                  "Migration#apply! requires from_state_path — declare with " \
+                  "`from_state_path: 'workspaces/<src>/terraform.tfstate'` " \
+                  "(see theory/PANGEA-MAGMA-ORCHESTRATION.md §V)"
+          end
+          unless @migration.to_state_path
+            raise ArgumentError,
+                  "Migration#apply! requires to_state_path — declare with " \
+                  "`to_state_path: 'workspaces/<dst>/terraform.tfstate'`"
+          end
+
+          # Render typed MigrationPlan JSON that `magma migrate` consumes
+          # directly (the on-disk shape of magma_migrate::MigrationPlan).
+          magma_plan = {
+            from: { name: @migration.from.to_s, state_path: @migration.from_state_path },
+            to:   { name: @migration.to.to_s,   state_path: @migration.to_state_path   },
+            moves: @actions.map { |a| { source_address: a.address, target_address: a.new_address } },
+            preserve: {
+              resource_identity:    @migration.preserve.include?(:resource_identity),
+              tags:                 @migration.preserve.include?(:tags),
+              dependent_resources:  @migration.preserve.include?(:dependent_resources),
+            },
+            dry_run: @migration.dry_run,
+          }
+
+          tmp = Tempfile.new(['magma-migrate', '.json'])
+          begin
+            tmp.write(JSON.pretty_generate(magma_plan))
+            tmp.close
+            out, err, status = Open3.capture3(Pangea::Magma.binary, 'migrate', tmp.path)
+            unless status.success?
+              raise "magma migrate failed (exit #{status.exitstatus}):\n#{err}\n#{out}"
+            end
+            JSON.parse(out)
+          ensure
+            tmp.unlink
+          end
         end
 
         def to_h
@@ -97,25 +135,31 @@ module Pangea
       class InvariantViolation < StandardError; end
 
       class << self
-        def declare(from:, to:, resources:, preserve: [:resource_identity], dry_run: true)
+        def declare(from:, to:, resources:, preserve: [:resource_identity],
+                    dry_run: true, from_state_path: nil, to_state_path: nil)
           raise ArgumentError, 'from required' if from.nil?
           raise ArgumentError, 'to required'   if to.nil?
           raise ArgumentError, 'resources required, got empty' if resources.empty?
 
           moves = resources.map { |r| ResourceMove.new(**r) }
           new(from: from.to_sym, to: to.to_sym,
-              resources: moves, preserve: preserve, dry_run: dry_run)
+              resources: moves, preserve: preserve, dry_run: dry_run,
+              from_state_path: from_state_path, to_state_path: to_state_path)
         end
       end
 
-      attr_reader :from, :to, :resources, :preserve, :dry_run
+      attr_reader :from, :to, :resources, :preserve, :dry_run,
+                  :from_state_path, :to_state_path
 
-      def initialize(from:, to:, resources:, preserve:, dry_run:)
-        @from      = from
-        @to        = to
-        @resources = resources
-        @preserve  = preserve
-        @dry_run   = dry_run
+      def initialize(from:, to:, resources:, preserve:, dry_run:,
+                     from_state_path: nil, to_state_path: nil)
+        @from            = from
+        @to              = to
+        @resources       = resources
+        @preserve        = preserve
+        @dry_run         = dry_run
+        @from_state_path = from_state_path
+        @to_state_path   = to_state_path
       end
 
       # Produce a typed Plan. M0.1 stub: emits a 1:1 action per
@@ -143,12 +187,14 @@ module Pangea
 
       def to_h
         {
-          from:      @from.to_s,
-          to:        @to.to_s,
-          resources: @resources.map(&:to_h),
-          preserve:  @preserve.map(&:to_s),
-          dry_run:   @dry_run,
-        }
+          from:            @from.to_s,
+          to:              @to.to_s,
+          resources:       @resources.map(&:to_h),
+          preserve:        @preserve.map(&:to_s),
+          dry_run:         @dry_run,
+          from_state_path: @from_state_path,
+          to_state_path:   @to_state_path,
+        }.compact
       end
 
       def to_json(*args)
