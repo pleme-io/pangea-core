@@ -4,6 +4,16 @@ require 'json'
 require 'open3'
 require 'tempfile'
 
+# Forward-declare the Error superclass when this file is loaded
+# standalone (Pangea::Magma module loaded later auto-inherits).
+module Pangea
+  module Magma
+    unless defined?(Pangea::Magma::Error)
+      class Error < StandardError; end
+    end
+  end
+end
+
 module Pangea
   module Magma
     # Shared command-line plumbing for every Ruby↔magma invocation.
@@ -29,7 +39,10 @@ module Pangea
     # debugging was harder for it. One typed surface here means
     # downstream wrappers cannot regress those concerns.
     class Runner
-      class SubprocessError < StandardError
+      # Inherits from Pangea::Magma::Error so callers can `rescue
+      # Pangea::Magma::Error` and catch any failure raised by the
+      # shared command-line plumbing.
+      class SubprocessError < Pangea::Magma::Error
         attr_reader :exit_code, :stdout, :stderr, :command
 
         def initialize(command:, exit_code:, stdout:, stderr:)

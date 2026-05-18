@@ -120,7 +120,9 @@ module Pangea
         end
       end
 
-      class InvariantViolation < StandardError; end
+      # Inherits from Pangea::Magma::Error so `rescue
+      # Pangea::Magma::Error` catches every typed magma failure.
+      class InvariantViolation < Pangea::Magma::Error; end
 
       class << self
         def declare(from:, to:, resources:, preserve: [:resource_identity],

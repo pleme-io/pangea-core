@@ -142,10 +142,15 @@ module Pangea
       end
     end
 
+    # Base class for every Pangea::Magma-raised error. Lets callers
+    # `rescue Pangea::Magma::Error` for any magma subprocess failure
+    # (verify, flow, migrate, split, merge, capabilities, …).
+    class Error < StandardError; end
+
     # Raised when `magma fixture verify` / `verify-dir` reports a
     # non-recoverable failure (subprocess crashed, JSON malformed, etc.).
     # `WorkspaceReport.compatibility.plans_cleanly = false` does NOT
     # raise — it's a typed status surfaced via the matcher.
-    class VerificationFailed < StandardError; end
+    class VerificationFailed < Error; end
   end
 end
