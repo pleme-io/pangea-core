@@ -77,6 +77,7 @@ require_relative 'pangea/resources/builders/output_builder'
 # Core resource types
 require_relative 'pangea/resources/types'
 require_relative 'pangea/resource_registry'
+require_relative 'pangea/provider_registry'
 require_relative 'pangea/resources/helpers'
 require_relative 'pangea/resources/base'
 require_relative 'pangea/resources/base_attributes'
