@@ -127,4 +127,50 @@ RSpec.describe Pangea::CLI::Config do
       end
     end
   end
+
+  describe '#resolve_backend_config — backend AWS profile (cross-account state)' do
+    def root_yaml_with_profile
+      <<~YAML
+        state:
+          s3:
+            bucket: pleme-dev-terraform-state
+            region: us-east-1
+            dynamodb_table: pleme-dev-terraform-locks
+            aws_profile: akeyless-development
+      YAML
+    end
+
+    it 'renders state.s3.aws_profile into the backend profile so the state ' \
+       'backend can authenticate against a different account than the provider' do
+      with_workspace(workspace_yaml: workspace_yaml, root_yaml: root_yaml_with_profile) do |tpl|
+        cfg = described_class.new(tpl, namespace: 'development')
+        expect(cfg.backend_config.dig('s3', 'profile')).to eq('akeyless-development')
+      end
+    end
+
+    it 'omits the profile key entirely when no aws_profile is configured ' \
+       '(byte-identical backend for same-account workspaces)' do
+      with_workspace(workspace_yaml: workspace_yaml) do |tpl|
+        cfg = described_class.new(tpl, namespace: 'development')
+        expect(cfg.backend_config['s3']).not_to have_key('profile')
+      end
+    end
+
+    it 'lets a workspace override the backend profile per-namespace' do
+      ws = <<~YAML
+        workspace: platform-dns
+        default_namespace: development
+        namespaces:
+          development:
+            state:
+              type: s3
+              key: pangea/platform-dns
+              aws_profile: akeyless-staging
+      YAML
+      with_workspace(workspace_yaml: ws, root_yaml: root_yaml_with_profile) do |tpl|
+        cfg = described_class.new(tpl, namespace: 'development')
+        expect(cfg.backend_config.dig('s3', 'profile')).to eq('akeyless-staging')
+      end
+    end
+  end
 end

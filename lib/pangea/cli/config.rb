@@ -88,6 +88,17 @@ module Pangea
               'region' => state['region'] || s3_defaults['region'] || 'us-east-1',
               'dynamodb_table' => state['dynamodb_table'] || s3_defaults['dynamodb_table'],
               'encrypt' => state.fetch('encrypt', s3_defaults.fetch('encrypt', true)),
+              # Render the state backend's own AWS profile so the BACKEND (state
+              # bucket/lock table) can authenticate against a DIFFERENT account
+              # than the resource PROVIDER. Without this, the s3 backend falls
+              # back to the ambient AWS_PROFILE (the provider/workspace account),
+              # which only works when state-account == resource-account. A
+              # workspace whose `account:` differs from the state bucket's
+              # account (e.g. resources in akeyless-staging, state in
+              # akeyless-development) gets a cross-account 403 on state refresh.
+              # `.compact` drops this when unset → byte-identical for the
+              # same-account workspaces that omit aws_profile.
+              'profile' => state['aws_profile'] || s3_defaults['aws_profile'],
             }.compact,
           }
         else
