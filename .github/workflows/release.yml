@@ -18,5 +18,4 @@ jobs:
     uses: pleme-io/substrate/.github/workflows/gem-release.yml@main
     with:
       gem-name: pangea-core
-    secrets:
-      RUBYGEMS_API_KEY: ${{ secrets.RUBYGEMS_API_KEY }}
+    secrets: inherit
