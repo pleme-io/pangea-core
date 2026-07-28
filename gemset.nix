@@ -34,10 +34,24 @@
     platforms = [];
     source = {
       remotes = ["https://rubygems.org"];
-      sha256 = "1aymcakhzl83k77g2f2krz07bg1cbafbcd2ghvwr4lky3rz86mkb";
+      # CVE-2026-54906 (CRITICAL, ReadWriteLock unauthorized lock release +
+      # DoS) fixed >= 1.3.7; bumped straight to 1.3.8 (latest as of
+      # 2026-07-19) which also closes CVE-2026-54904/CVE-2026-54905 (same
+      # advisory family, HIGH/MEDIUM). Same fix pleme-io/pangea-operator
+      # applied to its own pangea-compiler/gemset.nix (commit 39c76c3) --
+      # this repo's OWN vendored copy (pangea-core is embedded into the
+      # operator image as a path-gem with its OWN Gemfile.lock-resolved
+      # vendor/bundle) was a separate, un-bumped instance of the same
+      # vulnerable pin, surfaced by a real trivy scan of the built image
+      # (2026-07-19) after pangea-operator's own copy was already fixed.
+      # Hash verified via `nix hash file --type sha256 --base32` against
+      # the real https://rubygems.org/downloads/concurrent-ruby-1.3.8.gem
+      # -- byte-identical to the hash pangea-operator's own bump used,
+      # since it's the same upstream artifact.
+      sha256 = "1qfi2ns3zwkgq616fc127xiqhan7g7m7gqpwriwcr34nds1vxwdj";
       type = "gem";
     };
-    version = "1.3.6";
+    version = "1.3.8";
   };
   diff-lcs = {
     groups = ["default" "development"];
