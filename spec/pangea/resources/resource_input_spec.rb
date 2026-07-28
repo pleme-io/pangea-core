@@ -31,6 +31,24 @@ module TestTypes
     attribute? :tag, T::String.optional
     attribute? :count, T::Integer.optional
   end
+
+  # Mirrors hcloud_firewall_attachment: an id list typed as numbers whose
+  # real-world values are ${...} refs to servers built in the same workspace.
+  class NumericArrayAttributes < Pangea::Resources::BaseAttributes
+    T = TestTypes
+    attribute :firewall_id, (T::Coercible::Integer | T::Coercible::Float)
+    attribute? :server_ids, T::Array.of((T::Coercible::Integer | T::Coercible::Float)).optional
+  end
+
+  # Containers refs can hide inside at depth: nested arrays, blocks-as-hashes,
+  # and typed maps.
+  class NestedAttributes < Pangea::Resources::BaseAttributes
+    T = TestTypes
+    attribute :name, T::String
+    attribute? :matrix, T::Array.of(T::Array.of(T::Integer)).optional
+    attribute? :network, T::Array.of(T::Hash).optional
+    attribute? :weights, T::Hash.map(T::String, T::Integer).optional
+  end
 end
 
 RSpec.describe Pangea::Resources::ResourceInput do
@@ -96,6 +114,147 @@ RSpec.describe Pangea::Resources::ResourceInput do
       })
       expect(input.refs[:port]).to eq('${var.port}')
       expect(input[:cidr]).to eq('10.0.0.0/16')
+    end
+  end
+
+  # ── 2b. Refs nested INSIDE containers ───────────────────────────
+  #
+  # A ref is opaque at whatever depth it sits. `server_ids: [srv.id, srv.id]`
+  # is exactly as unresolvable at synthesis time as `firewall_id: fw.id` —
+  # the only difference is that the unknown is an element rather than the
+  # whole value. Everything AROUND the ref is still known and still checked.
+
+  describe 'refs nested inside containers' do
+    let(:srv_a) { '${hcloud_server.a.id}' }
+    let(:srv_b) { '${hcloud_server.b.id}' }
+
+    it 'partitions an array whose elements are all refs' do
+      input = described_class.partition(TestTypes::NumericArrayAttributes, {
+        firewall_id: '${hcloud_firewall.main.id}',
+        server_ids: [srv_a, srv_b],
+      })
+      expect(input.refs[:server_ids]).to eq([srv_a, srv_b])
+      expect(input[:server_ids]).to eq([srv_a, srv_b])
+    end
+
+    it 'passes an array of refs through to_h verbatim, order preserved' do
+      input = described_class.partition(TestTypes::NumericArrayAttributes, {
+        firewall_id: 42,
+        server_ids: [srv_b, srv_a],
+      })
+      expect(input.to_h[:server_ids]).to eq([srv_b, srv_a])
+      expect(input.to_h[:firewall_id]).to eq(42)
+    end
+
+    it 'accepts a MIXED array of refs and valid literals' do
+      input = described_class.partition(TestTypes::NumericArrayAttributes, {
+        firewall_id: 42,
+        server_ids: [srv_a, '12345'],
+      })
+      expect(input[:server_ids]).to eq([srv_a, '12345'])
+    end
+
+    it 'still type-checks the LITERAL elements of a mixed array' do
+      expect {
+        described_class.partition(TestTypes::NumericArrayAttributes, {
+          firewall_id: 42,
+          server_ids: [srv_a, 'not-a-number'],
+        })
+      }.to raise_error(/server_ids/)
+    end
+
+    it 'partitions refs nested in an array of arrays' do
+      input = described_class.partition(TestTypes::NestedAttributes, {
+        name: 'n',
+        matrix: [[1, 2], ['${var.x}', 4]],
+      })
+      expect(input.refs).to have_key(:matrix)
+      expect(input[:matrix]).to eq([[1, 2], ['${var.x}', 4]])
+    end
+
+    it 'still type-checks literal leaves of a nested array' do
+      expect {
+        described_class.partition(TestTypes::NestedAttributes, {
+          name: 'n',
+          matrix: [['${var.x}', 'nope']],
+        })
+      }.to raise_error(/matrix/)
+    end
+
+    it 'partitions refs nested inside a block-shaped hash element' do
+      input = described_class.partition(TestTypes::NestedAttributes, {
+        name: 'n',
+        network: [{ network_id: '${hcloud_network.main.id}' }],
+      })
+      expect(input.refs).to have_key(:network)
+      expect(input[:network]).to eq([{ network_id: '${hcloud_network.main.id}' }])
+    end
+
+    it 'partitions a typed map holding a ref value' do
+      input = described_class.partition(TestTypes::NestedAttributes, {
+        name: 'n',
+        weights: { 'a' => '${var.w}', 'b' => 2 },
+      })
+      expect(input.refs).to have_key(:weights)
+      expect(input[:weights]).to eq({ 'a' => '${var.w}', 'b' => 2 })
+    end
+
+    it 'still type-checks the non-ref values of a typed map' do
+      expect {
+        described_class.partition(TestTypes::NestedAttributes, {
+          name: 'n',
+          weights: { 'a' => '${var.w}', 'b' => 'nope' },
+        })
+      }.to raise_error(/weights/)
+    end
+
+    it 'counts an array-of-refs as satisfying required coverage' do
+      expect {
+        described_class.partition(TestTypes::ArrayAttributes, {
+          domain: 'pleme.lol',
+          nameservers: ['${a.b.c}', '${d.e.f}'],
+        })
+      }.not_to raise_error
+    end
+  end
+
+  # ── 2c. Containment must NOT over-broaden the bypass ────────────
+
+  describe 'ref-free containers keep full validation' do
+    it 'routes a ref-free array to literals, not refs' do
+      input = described_class.partition(TestTypes::NumericArrayAttributes, {
+        firewall_id: 42,
+        server_ids: [1, 2],
+      })
+      expect(input.refs).to be_empty
+      expect(input[:server_ids]).to eq([1, 2])
+    end
+
+    it 'rejects a ref-free array with a bad element' do
+      expect {
+        described_class.partition(TestTypes::NumericArrayAttributes, {
+          firewall_id: 42,
+          server_ids: [1, 'not-a-number'],
+        })
+      }.to raise_error(Dry::Types::CoercionError)
+    end
+
+    it 'rejects an array holding a PARTIAL-ref string (not a real ref)' do
+      expect {
+        described_class.partition(TestTypes::NumericArrayAttributes, {
+          firewall_id: 42,
+          server_ids: ['prefix${x.y}'],
+        })
+      }.to raise_error(/server_ids/)
+    end
+
+    it 'rejects a ref-free typed map with a bad value' do
+      expect {
+        described_class.partition(TestTypes::NestedAttributes, {
+          name: 'n',
+          weights: { 'a' => 'nope' },
+        })
+      }.to raise_error(Dry::Types::MapError, /weights/)
     end
   end
 

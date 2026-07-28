@@ -143,13 +143,40 @@ input[:cidr]   # => "10.0.0.0/16"   (validated)
 input[:vpc_id] # => "${aws_vpc.other.id}" (opaque)
 ```
 
-Key invariants (proven by 24 RSpec tests):
+**Refs are opaque at any DEPTH — routing is by CONTAINMENT, not identity.**
+An attribute whose value *contains* a `${...}` anywhere (array element, block
+field, nested array, map value) is routed to `refs` and passes through verbatim
+with structure and order preserved. Without this, a list of refs is unusable:
+
+```ruby
+firewall_id: firewall.id           # scalar ref     — opaque
+server_ids:  servers.map(&:id)     # array of refs  — opaque, EACH ELEMENT
+network:     [{ network_id: net.id }]  # ref inside a block — opaque
+```
+
+Bypassing the ref is the *only* thing bypassed. Everything around an opaque
+leaf is still known at synthesis time, so it is still checked
+(`check_residual`): `[server.id, "not-a-number"]` on an integer-typed list
+still raises, naming the attribute. **Type-checking is bypassed because a
+`${...}` CANNOT be decided — never because deciding is inconvenient.**
+
+Key invariants (proven by RSpec):
 - Literal values validated strictly per-field against Dry::Types constraints
-- Only `\A\$\{.+\}\z` strings bypass validation (not partial matches)
+- Only `\A\$\{.+\}\z` strings are refs (not partial matches like `pre${x}`)
+- A container is opaque iff it CONTAINS a ref; its non-ref leaves are still
+  validated against the declared member / map-value / schema-key type
 - Required attributes must be in EITHER literals or refs (not missing from both)
 - ResourceInput is frozen after creation (immutable)
 - `[]` accessor resolves refs over literals
-- `.load` used for Dry::Struct construction (bypasses missing-key for ref fields)
+- `.load` used for Dry::Struct construction (bypasses missing-key for ref
+  fields). `.load` does NOT coerce — so the boundary is validate-only in both
+  directions, and a ref-adjacent leaf is treated exactly like a literal.
+
+Honest limits (documented, not silent): a `.constrained(min_size:)`-style
+predicate on the *container* is not re-applied to a ref-carrying container
+(re-checking risks false rejections from element-inspecting predicates); a
+type declaring nothing about its contents (bare `T::Hash`) has nothing to
+check, so skipping is exactly what the type says.
 
 Equivalent to Rust's serde boundary: type is strict, serialization handles wire format.
 
