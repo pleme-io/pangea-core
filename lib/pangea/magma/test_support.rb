@@ -35,8 +35,17 @@ module Pangea
       class << self
         # Skip the current rspec example if the magma binary is not on
         # PATH. Pass `self` from a `before(:all)` block.
+        # Guard an example group so it skips when the magma binary is absent.
+        #
+        # `ExampleGroup.skip('name')` DEFINES A SKIPPED EXAMPLE with that name -
+        # it is the sibling of `it`, not a group-level switch - so the previous
+        # implementation added one pending example and left every real example
+        # running against a binary that is not there. Registering a before hook
+        # that calls the EXAMPLE-level `skip` is what actually guards them.
         def skip_unless_installed!(example_group)
-          example_group.skip 'magma not installed' unless Pangea::Magma.installed?
+          example_group.before do
+            skip 'magma not installed' unless Pangea::Magma.installed?
+          end
         end
 
         # Render a minimal Pangea-shaped `.tf.json` file at the given

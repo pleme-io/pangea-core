@@ -32,9 +32,10 @@ RSpec.describe Pangea::Magma do
   end
 
   describe 'when magma binary is reachable' do
-    before(:all) do
-      Pangea::Magma::TestSupport.skip_unless_installed!(self.class)
-    end
+    # Definition-time: `self` here IS the example group. Calling this from
+    # before(:all) does nothing, because by then self.class is not the group and
+    # the metadata that `skip` sets has already been read.
+    Pangea::Magma::TestSupport.skip_unless_installed!(self)
 
     it 'reports capabilities with the expected schema' do
       caps = described_class.capabilities

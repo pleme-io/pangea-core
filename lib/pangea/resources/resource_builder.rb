@@ -126,6 +126,36 @@ module Pangea
             end
           end
         end
+
+        ensure_block_recorded(block_type, tf_type, name)
+      end
+
+      # The synthesizer builds its manifest by burying LEAF values, so a block
+      # whose body records nothing never creates its node and the resource
+      # silently disappears from the output.
+      #
+      # That is wrong for a resource whose schema has no configurable attributes
+      # at all. `datadog_integration_aws_external_id` is the real case: its only
+      # field is a read-only `id`, and the provider's own documented usage is
+      # literally `resource "datadog_integration_aws_external_id" "foo" {}`.
+      # Terraform needs that empty block to exist; dropping it means such a
+      # resource can never be declared through Pangea.
+      #
+      # KEYS ARE SYMBOLS AT EVERY LEVEL and the resource name is stored exactly
+      # as the caller passed it. Writing string keys here creates a PARALLEL
+      # empty node that shadows the real one -- which is how a first attempt at
+      # this silently emptied 17 unrelated resources.
+      def ensure_block_recorded(block_type, tf_type, name)
+        manifest = synthesis
+        return unless manifest.is_a?(Hash)
+
+        section = (manifest[block_type.to_sym] ||= {})
+        return unless section.is_a?(Hash)
+
+        typed = (section[tf_type.to_sym] ||= {})
+        return unless typed.is_a?(Hash)
+
+        typed[name] = {} unless typed.key?(name)
       end
 
       def _build_reference(type_str, name, input, outputs)
