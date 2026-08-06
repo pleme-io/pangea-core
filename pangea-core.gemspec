@@ -18,8 +18,13 @@ Gem::Specification.new do |spec|
   spec.bindir                = %(exe)
   spec.executables           = [%(pangea)]
 
+  # WHAT A PUBLIC GEM MUST NOT CARRY. This rejected only test/spec/features,
+  # so a `gem build` shipped 1131 files: 1026 vendored gems, the repo's own
+  # agent instructions (CLAUDE.md, AGENTS.md), docs/, and CI config. vendor/
+  # alone is other people's code republished under our name.
   spec.files = `git ls-files -z`.split("\x0").reject do |f|
-    f.match(%r{^(test|spec|features)/})
+    f.match(%r{^(test|spec|features|vendor|docs|\.github)/}) ||
+      f.match(%r{^(CLAUDE|AGENTS)\.md$})
   end
 
   spec.add_dependency "terraform-synthesizer", ">= 0.0.28"
