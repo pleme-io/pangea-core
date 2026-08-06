@@ -18,12 +18,4 @@ jobs:
     uses: pleme-io/substrate/.github/workflows/gem-release.yml@main
     with:
       gem-name: pangea-core
-    # EXPLICIT, not `secrets: inherit`. The reusable workflow declares
-    # RUBYGEMS_API_KEY as required, and inherit was not satisfying it -- the
-    # v0.3.1 tag run failed with
-    #   Secret RUBYGEMS_API_KEY is required, but not provided while calling
-    # even though the org secret exists with visibility=all and inherit was in
-    # place. Naming the secret is the form substrate's own header documents and
-    # removes the indirection from the failure path.
-    secrets:
-      RUBYGEMS_API_KEY: ${{ secrets.RUBYGEMS_API_KEY }}
+    secrets: inherit
