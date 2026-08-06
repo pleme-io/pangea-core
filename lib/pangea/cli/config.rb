@@ -94,8 +94,8 @@ module Pangea
               # back to the ambient AWS_PROFILE (the provider/workspace account),
               # which only works when state-account == resource-account. A
               # workspace whose `account:` differs from the state bucket's
-              # account (e.g. resources in akeyless-staging, state in
-              # akeyless-development) gets a cross-account 403 on state refresh.
+              # account (e.g. resources in example-staging, state in
+              # example-development) gets a cross-account 403 on state refresh.
               # `.compact` drops this when unset → byte-identical for the
               # same-account workspaces that omit aws_profile.
               'profile' => state['aws_profile'] || s3_defaults['aws_profile'],

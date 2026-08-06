@@ -12,16 +12,16 @@ module Pangea
   #
   # Usage in a template:
   #   vpc_id = Pangea::RemoteState.from_template(ws,
-  #     template: 'akeyless-dev-cluster',
+  #     template: 'example-dev-cluster',
   #     output: :vpc_id,
   #   )
-  #   # => "vpc-06b5744a5287e2d47" (actual VPC ID from state)
+  #   # => "vpc-0abc123def456789a" (the VPC ID held in state)
   #
   # Or with explicit config:
   #   vpc_id = Pangea::RemoteState.output(
-  #     template: 'akeyless-dev-cluster',
+  #     template: 'example-dev-cluster',
   #     output: :vpc_id,
-  #     bucket: 'pangea-terraform-state-376129857990',
+  #     bucket: 'pangea-terraform-state-<account-id>',
   #     region: 'us-east-1',
   #   )
   #
@@ -61,7 +61,7 @@ module Pangea
       # Requires configure() to have been called first (or pass bucket/region).
       #
       # Usage:
-      #   Pangea::RemoteState.from('akeyless-dev-cluster', :vpc_id)
+      #   Pangea::RemoteState.from('example-dev-cluster', :vpc_id)
       #
       # @param template [String] Source template name
       # @param output [Symbol, String] Output name to read
