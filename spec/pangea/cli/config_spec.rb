@@ -136,7 +136,7 @@ RSpec.describe Pangea::CLI::Config do
             bucket: pleme-dev-terraform-state
             region: us-east-1
             dynamodb_table: pleme-dev-terraform-locks
-            aws_profile: akeyless-development
+            aws_profile: example-development
       YAML
     end
 
@@ -144,7 +144,7 @@ RSpec.describe Pangea::CLI::Config do
        'backend can authenticate against a different account than the provider' do
       with_workspace(workspace_yaml: workspace_yaml, root_yaml: root_yaml_with_profile) do |tpl|
         cfg = described_class.new(tpl, namespace: 'development')
-        expect(cfg.backend_config.dig('s3', 'profile')).to eq('akeyless-development')
+        expect(cfg.backend_config.dig('s3', 'profile')).to eq('example-development')
       end
     end
 
@@ -165,11 +165,11 @@ RSpec.describe Pangea::CLI::Config do
             state:
               type: s3
               key: pangea/platform-dns
-              aws_profile: akeyless-staging
+              aws_profile: example-staging
       YAML
       with_workspace(workspace_yaml: ws, root_yaml: root_yaml_with_profile) do |tpl|
         cfg = described_class.new(tpl, namespace: 'development')
-        expect(cfg.backend_config.dig('s3', 'profile')).to eq('akeyless-staging')
+        expect(cfg.backend_config.dig('s3', 'profile')).to eq('example-staging')
       end
     end
   end
