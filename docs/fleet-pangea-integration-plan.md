@@ -81,7 +81,7 @@ injects the state backend coordinates into step B's config. No manual
 # fleet.yaml — infrastructure flows
 flows:
   k3s-dev-cluster:
-    description: "Full K3s dev cluster in Akeyless dev account"
+    description: "Full K3s dev cluster in a dev cloud account"
     steps:
       - id: permissions
         action:
