@@ -4,6 +4,7 @@ require 'json'
 require_relative 'synthesizer'
 require_relative 'theme'
 require_relative 'tofu_events'
+require_relative 'account_guard'
 
 module Pangea
   class CLI
@@ -60,6 +61,10 @@ module Pangea
       end
 
       def plan
+        # ★ Refuse before ANY AWS call — plan refreshes, so it reads the
+        # wrong account too, and destroy against the wrong account is the
+        # worst of the three. See AccountGuard for the measured incident.
+        guard_account!
         synth
         in_workspace do
           tofu_init
@@ -69,6 +74,10 @@ module Pangea
       end
 
       def apply
+        # ★ Refuse before ANY AWS call — plan refreshes, so it reads the
+        # wrong account too, and destroy against the wrong account is the
+        # worst of the three. See AccountGuard for the measured incident.
+        guard_account!
         synth
         in_workspace do
           tofu_init
@@ -78,6 +87,10 @@ module Pangea
       end
 
       def destroy
+        # ★ Refuse before ANY AWS call — plan refreshes, so it reads the
+        # wrong account too, and destroy against the wrong account is the
+        # worst of the three. See AccountGuard for the measured incident.
+        guard_account!
         synth
         in_workspace do
           tofu_init
@@ -119,6 +132,22 @@ module Pangea
       # pass-through if PANGEA_VERBOSE=1. Records a StageOutcome into
       # `@last_outcome` for cascade aggregation; re-raises on failure
       # so callers keep their original exception-based flow.
+      # Refuse an operation whose ambient AWS identity is in a different
+      # account than this workspace declares. pangea renders no provider
+      # block by design, so `account:` was documentation until this ran.
+      def guard_account!
+        verdict = AccountGuard.assert!(config.template_dir)
+        return unless verdict.state == :skipped
+
+        Theme.structured_log(
+          [:info, 'account check skipped'],
+          [:deprecation, verdict.message],
+        )
+      rescue AccountGuard::AccountMismatch => e
+        Theme.structured_log([:error, 'REFUSED'], [:deprecation, e.message])
+        raise
+      end
+
       def run_tofu(op, *extra_args)
         if verbose_mode?
           tofu(op, '-input=false', '-no-color', *extra_args)
