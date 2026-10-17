@@ -81,6 +81,48 @@ RSpec.describe Pangea::RemoteState do
     end
   end
 
+  describe 'supplied outputs' do
+    around do |ex|
+      key = 'PANGEA_REMOTE_STATE_AKEYLESS_DEV_CLUSTER_VPC_ID'
+      ENV[key] = 'vpc-supplied'
+      ex.run
+    ensure
+      ENV.delete(key)
+      ENV.delete('PANGEA_REMOTE_STATE_TPL_SUBNETS')
+    end
+
+    it 'names the input after the template and output' do
+      expect(described_class.input_env_var('akeyless-dev-cluster', :vpc_id))
+        .to eq('PANGEA_REMOTE_STATE_AKEYLESS_DEV_CLUSTER_VPC_ID')
+    end
+
+    it 'returns the supplied value without reading state or needing a bucket' do
+      allow(described_class).to receive(:fetch_state)
+      expect(described_class.from('akeyless-dev-cluster', :vpc_id)).to eq('vpc-supplied')
+      expect(described_class).not_to have_received(:fetch_state)
+      expect(described_class.dependency_graph).to have_key('akeyless-dev-cluster')
+    end
+
+    it 'decodes a supplied list or map as JSON' do
+      ENV['PANGEA_REMOTE_STATE_TPL_SUBNETS'] = '["subnet-a","subnet-b"]'
+      expect(described_class.output(template: 'tpl', output: :subnets)).to eq(%w[subnet-a subnet-b])
+    end
+
+    it 'prefers the supplied value over workspace config discovery' do
+      ws = double('ws')
+      allow(ws).to receive(:respond_to?).and_return(false)
+      expect(described_class.from_template(ws, template: 'akeyless-dev-cluster', output: :vpc_id))
+        .to eq('vpc-supplied')
+    end
+
+    it 'falls back to state when the input is empty' do
+      ENV['PANGEA_REMOTE_STATE_AKEYLESS_DEV_CLUSTER_VPC_ID'] = ''
+      allow(described_class).to receive(:fetch_state).and_return(nil)
+      described_class.output(template: 'akeyless-dev-cluster', output: :vpc_id, bucket: 'b')
+      expect(described_class).to have_received(:fetch_state)
+    end
+  end
+
   describe '.from' do
     it 'delegates to .output' do
       described_class.configure(bucket: 'b')

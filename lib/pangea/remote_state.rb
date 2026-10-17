@@ -41,6 +41,12 @@ module Pangea
       # @param state_key [String] Override state key (default: pangea convention)
       # @return [String, nil] The output value, or nil if not found
       def output(template:, output:, bucket: nil, region: nil, state_key: nil)
+        supplied = supplied_output(template, output)
+        unless supplied.nil?
+          @dependencies[template] ||= []
+          return supplied
+        end
+
         bucket ||= @root_bucket
         region ||= @root_region || 'us-east-1'
 
@@ -88,6 +94,8 @@ module Pangea
       # @param output [Symbol, String] Output name to read
       # @return [String, nil] The output value, or nil if not found
       def from_template(ws, template:, output:)
+        return self.output(template: template, output: output) unless supplied_output(template, output).nil?
+
         # Try to extract bucket from workspace config hierarchy
         bucket = extract_bucket(ws)
         region = extract_region(ws)
@@ -95,6 +103,10 @@ module Pangea
         raise ArgumentError, "Cannot determine state bucket from workspace config" unless bucket
 
         self.output(template: template, output: output, bucket: bucket, region: region)
+      end
+
+      def input_env_var(template, output)
+        "PANGEA_REMOTE_STATE_#{template}_#{output}".tr('-', '_').upcase
       end
 
       # Get all templates this workspace depends on.
@@ -112,6 +124,13 @@ module Pangea
       end
 
       private
+
+      def supplied_output(template, output)
+        raw = ENV[input_env_var(template, output)]
+        return nil if raw.nil? || raw.empty?
+
+        raw.start_with?('[', '{') ? JSON.parse(raw) : raw
+      end
 
       # Extract S3 bucket from workspace config (tries multiple paths).
       def extract_bucket(ws)
